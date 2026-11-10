@@ -583,6 +583,105 @@ async function getFootballDataForm(homeName, awayName, leagueName) {
 }
 
 
+
+// API Ninjas is an independent current-season fallback. Its club IDs are
+// stable across competitions, and team-only match queries return that club's
+// current-season schedule across available competitions.
+async function apiNinjasJson(path, key) {
+  const response = await fetch(`https://api.api-ninjas.com/v1${path}`, {
+    headers: { "X-Api-Key": key, Accept: "application/json" },
+    next: { revalidate: 1800 },
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = typeof body === "string" ? body : (body?.error || body?.message || JSON.stringify(body));
+    throw new Error(`API Ninjas returned HTTP ${response.status}: ${detail}`);
+  }
+  if (!Array.isArray(body)) throw new Error("API Ninjas returned an unexpected response format.");
+  return body;
+}
+
+async function findApiNinjasTeam(teamName, key) {
+  const clubs = await apiNinjasJson(`/soccerclubs?team=${encodeURIComponent(teamName)}`, key);
+  const wanted = normalize(teamName);
+  const exact = clubs.find((club) =>
+    normalize(club.name) === wanted || normalize(club.short_name) === wanted || normalize(club.abbreviation) === wanted
+  );
+  const partial = clubs.filter((club) => {
+    const candidate = normalize(club.name || club.short_name);
+    return candidate.length > 4 && wanted.length > 3
+      && (candidate.includes(wanted) || wanted.includes(candidate));
+  }).sort((a, b) => normalize(a.name).length - normalize(b.name).length)[0];
+  const team = exact || partial || (clubs.length === 1 ? clubs[0] : null);
+  if (!team?.team_id) throw new Error(`API Ninjas could not identify "${teamName}" in its club directory.`);
+  return team;
+}
+
+function apiNinjasMatchToStandard(match) {
+  const home = match.home_team || {};
+  const away = match.away_team || {};
+  const timestamp = match.start_time ? Math.floor(Date.parse(match.start_time) / 1000)
+    : match.date ? Math.floor(Date.parse(`${match.date}T12:00:00Z`) / 1000) : 0;
+  return {
+    fixture: {
+      id: match.game_id,
+      date: match.start_time || match.date,
+      timestamp,
+      status: { short: "FT" },
+    },
+    teams: {
+      home: { id: home.team_id, name: home.name },
+      away: { id: away.team_id, name: away.name },
+    },
+    goals: { home: Number(match.home_score), away: Number(match.away_score) },
+  };
+}
+
+async function getApiNinjasForm(homeName, awayName) {
+  const key = process.env.API_NINJAS_KEY;
+  if (!key) throw new Error("API_NINJAS_KEY is missing from the server environment.");
+  const [homeTeam, awayTeam] = await Promise.all([
+    findApiNinjasTeam(homeName, key),
+    findApiNinjasTeam(awayName, key),
+  ]);
+  const [homeResponse, awayResponse] = await Promise.allSettled([
+    apiNinjasJson(`/soccermatches?team=${encodeURIComponent(homeTeam.team_id)}`, key),
+    apiNinjasJson(`/soccermatches?team=${encodeURIComponent(awayTeam.team_id)}`, key),
+  ]);
+  const recent = (result, team) => result.status === "fulfilled"
+    ? result.value
+      .filter((match) => match.status === "final"
+        && match.home_score !== null && match.home_score !== undefined
+        && match.away_score !== null && match.away_score !== undefined)
+      .map(apiNinjasMatchToStandard)
+      .filter((match) => match.fixture.timestamp
+        && Number.isFinite(match.goals.home) && Number.isFinite(match.goals.away))
+      .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp)
+      .slice(0, 5)
+      .map((match) => {
+        if (String(match.teams.home.id) === String(team.team_id)) match.teams.home.id = team.team_id;
+        if (String(match.teams.away.id) === String(team.team_id)) match.teams.away.id = team.team_id;
+        return match;
+      })
+    : [];
+  const homeRecent = recent(homeResponse, homeTeam);
+  const awayRecent = recent(awayResponse, awayTeam);
+  const warnings = [
+    ...(homeResponse.status === "rejected" ? [`API Ninjas could not retrieve ${homeTeam.name}'s matches: ${homeResponse.reason?.message || "request failed"}`] : []),
+    ...(awayResponse.status === "rejected" ? [`API Ninjas could not retrieve ${awayTeam.name}'s matches: ${awayResponse.reason?.message || "request failed"}`] : []),
+    ...(!homeRecent.length && homeResponse.status === "fulfilled" ? [`API Ninjas returned no completed current-season results for ${homeTeam.name}.`] : []),
+    ...(!awayRecent.length && awayResponse.status === "fulfilled" ? [`API Ninjas returned no completed current-season results for ${awayTeam.name}.`] : []),
+  ];
+  return {
+    homeRecent,
+    awayRecent,
+    headToHead: [],
+    warnings,
+    source: "API Ninjas",
+    teamsMatched: { home: homeTeam.name, away: awayTeam.name },
+  };
+}
+
 const ESPN_LEAGUES = [
   { slug: "eng.2", names: ["championship", "english championship", "efl championship"] },
   { slug: "eng.1", names: ["premier league", "english premier league"] },
@@ -725,10 +824,11 @@ export async function GET(request) {
   if (needsTopUp) {
     // Try both fallback providers independently. A restriction or outage in
     // one provider must not prevent valid results from the other being used.
-    const [apiFootballResult, footballDataResult, espnResult] = await Promise.allSettled([
+    const [apiFootballResult, footballDataResult, espnResult, apiNinjasResult] = await Promise.allSettled([
       getApiFootballForm(homeName, awayName),
       getFootballDataForm(homeName, awayName, leagueName),
       getEspnForm(homeName, awayName, leagueName),
+      getApiNinjasForm(homeName, awayName),
     ]);
     const apiFallback = apiFootballResult.status === "fulfilled"
       ? apiFootballResult.value
@@ -739,20 +839,29 @@ export async function GET(request) {
     const espnFallback = espnResult.status === "fulfilled"
       ? espnResult.value
       : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`ESPN: ${espnResult.reason?.message || "request failed"}`] };
+    const ninjasFallback = apiNinjasResult.status === "fulfilled"
+      ? apiNinjasResult.value
+      : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`API Ninjas: ${apiNinjasResult.reason?.message || "request failed"}`] };
 
     const homeRecent = mergeRecentMatches(
       mergeRecentMatches(
-        mergeRecentMatches(goalData.homeRecent, apiFallback.homeRecent),
-        dataFallback.homeRecent
+        mergeRecentMatches(
+          mergeRecentMatches(goalData.homeRecent, apiFallback.homeRecent),
+          dataFallback.homeRecent
+        ),
+        espnFallback.homeRecent
       ),
-      espnFallback.homeRecent
+      ninjasFallback.homeRecent
     );
     const awayRecent = mergeRecentMatches(
       mergeRecentMatches(
-        mergeRecentMatches(goalData.awayRecent, apiFallback.awayRecent),
-        dataFallback.awayRecent
+        mergeRecentMatches(
+          mergeRecentMatches(goalData.awayRecent, apiFallback.awayRecent),
+          dataFallback.awayRecent
+        ),
+        espnFallback.awayRecent
       ),
-      espnFallback.awayRecent
+      ninjasFallback.awayRecent
     );
     const headToHead = goalData.headToHead.length
       ? goalData.headToHead
@@ -765,6 +874,7 @@ export async function GET(request) {
       ...(apiFallback.warnings || []),
       ...(dataFallback.warnings || []),
       ...(espnFallback.warnings || []),
+      ...(ninjasFallback.warnings || []),
       ...(homeRecent.length < 5 ? [`Only ${homeRecent.length} completed recent matches could be retrieved for ${homeName} from the available providers.`] : []),
       ...(awayRecent.length < 5 ? [`Only ${awayRecent.length} completed recent matches could be retrieved for ${awayName} from the available providers.`] : []),
     ];
@@ -772,6 +882,7 @@ export async function GET(request) {
     if (apiFallback.homeRecent.length || apiFallback.awayRecent.length) sources.push("API-Football");
     if (dataFallback.homeRecent.length || dataFallback.awayRecent.length) sources.push("Football-Data.org");
     if (espnFallback.homeRecent.length || espnFallback.awayRecent.length) sources.push("ESPN");
+    if (ninjasFallback.homeRecent.length || ninjasFallback.awayRecent.length) sources.push("API Ninjas");
 
     return NextResponse.json({
       ...goalData,
@@ -780,7 +891,7 @@ export async function GET(request) {
       headToHead,
       warnings,
       source: sources.join(" + "),
-      formNotice: "Recent form combines verified completed results from GOAL API, API-Football, Football-Data.org and ESPN when available. No unrelated teams or unfinished matches are included. Head-to-head meetings are listed separately.",
+      formNotice: "Recent form combines verified completed results from GOAL API, API-Football, Football-Data.org, ESPN and API Ninjas when available. No unrelated teams or unfinished matches are included. Head-to-head meetings are listed separately.",
     });
   }
 
