@@ -443,6 +443,105 @@ async function getFootballDataForm(homeName, awayName, leagueName) {
   };
 }
 
+
+const ESPN_LEAGUES = [
+  { slug: "eng.2", names: ["championship", "english championship", "efl championship"] },
+  { slug: "eng.1", names: ["premier league", "english premier league"] },
+  { slug: "eng.3", names: ["league one", "english league one"] },
+  { slug: "eng.4", names: ["league two", "english league two"] },
+  { slug: "esp.1", names: ["la liga", "laliga", "primera division"] },
+  { slug: "ita.1", names: ["serie a"] },
+  { slug: "ger.1", names: ["bundesliga"] },
+  { slug: "fra.1", names: ["ligue 1"] },
+  { slug: "ned.1", names: ["eredivisie"] },
+  { slug: "por.1", names: ["primeira liga", "liga portugal"] },
+  { slug: "usa.1", names: ["mls", "major league soccer"] },
+];
+
+async function espnJson(path) {
+  const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${path}`, {
+    next: { revalidate: 1800 },
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) throw new Error(`ESPN soccer API returned HTTP ${response.status}`);
+  return response.json();
+}
+
+function findEspnTeam(teams, targetName) {
+  const wanted = normalize(targetName);
+  if (!wanted) return null;
+  return teams.find((team) => normalize(team.displayName || team.name || team.shortDisplayName) === wanted)
+    || teams.find((team) => {
+      const candidate = normalize(team.displayName || team.name || team.shortDisplayName);
+      return candidate.length > 4 && wanted.length > 4 && (candidate.includes(wanted) || wanted.includes(candidate));
+    })
+    || null;
+}
+
+function espnEventToMatch(event) {
+  const competition = event.competitions?.[0] || {};
+  const competitors = competition.competitors || [];
+  const home = competitors.find((item) => item.homeAway === "home") || competitors[0];
+  const away = competitors.find((item) => item.homeAway === "away") || competitors[1];
+  const completed = event.status?.type?.completed === true
+    || ["STATUS_FINAL", "STATUS_FULL_TIME"].includes(event.status?.type?.name);
+  if (!completed || !home || !away || home.score == null || away.score == null) return null;
+  const timestamp = event.date ? Math.floor(Date.parse(event.date) / 1000) : 0;
+  if (!timestamp || timestamp < Math.floor((Date.now() - 365 * 86400000) / 1000)) return null;
+  const homeScore = Number(home.score);
+  const awayScore = Number(away.score);
+  if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null;
+  return {
+    fixture: { id: event.id, date: event.date, timestamp, status: { short: "FT" } },
+    teams: {
+      home: { id: home.team?.id, name: home.team?.displayName || home.team?.name },
+      away: { id: away.team?.id, name: away.team?.displayName || away.team?.name },
+    },
+    goals: { home: homeScore, away: awayScore },
+  };
+}
+
+async function getEspnForm(homeName, awayName, leagueName) {
+  const normalizedLeague = normalize(leagueName);
+  const league = ESPN_LEAGUES.find((item) => item.names.some((name) => normalizedLeague.includes(normalize(name))));
+  if (!league) throw new Error(`No ESPN competition mapping is configured for "${leagueName}".`);
+  const directory = await espnJson(`${league.slug}/teams?limit=1000`);
+  const teams = (directory.sports || []).flatMap((sport) =>
+    (sport.leagues || []).flatMap((entry) => (entry.teams || []).map((item) => item.team || item))
+  );
+  const homeTeam = findEspnTeam(teams, homeName);
+  const awayTeam = findEspnTeam(teams, awayName);
+  if (!homeTeam || !awayTeam) {
+    throw new Error(`ESPN ${league.slug} team directory could not match both clubs. Home: ${homeTeam?.displayName || "not found"}; Away: ${awayTeam?.displayName || "not found"}.`);
+  }
+  const [homeSchedule, awaySchedule] = await Promise.all([
+    espnJson(`${league.slug}/teams/${encodeURIComponent(homeTeam.id)}/schedule`),
+    espnJson(`${league.slug}/teams/${encodeURIComponent(awayTeam.id)}/schedule`),
+  ]);
+  const matchesFrom = (body) => (body.events || [])
+    .map(espnEventToMatch)
+    .filter(Boolean)
+    .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp)
+    .slice(0, 5);
+  const homeRecent = matchesFrom(homeSchedule);
+  const awayRecent = matchesFrom(awaySchedule);
+  const h2h = [...(homeSchedule.events || []), ...(awaySchedule.events || [])]
+    .map(espnEventToMatch)
+    .filter((match) => match && (
+      (normalize(match.teams.home.name) === normalize(homeTeam.displayName || homeTeam.name)
+        && normalize(match.teams.away.name) === normalize(awayTeam.displayName || awayTeam.name))
+      || (normalize(match.teams.home.name) === normalize(awayTeam.displayName || awayTeam.name)
+        && normalize(match.teams.away.name) === normalize(homeTeam.displayName || homeTeam.name))
+    ))
+    .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp)
+    .slice(0, 5);
+  const warnings = [
+    ...(!homeRecent.length ? [`ESPN returned no completed recent results for ${homeName}.`] : []),
+    ...(!awayRecent.length ? [`ESPN returned no completed recent results for ${awayName}.`] : []),
+  ];
+  return { homeRecent, awayRecent, headToHead: h2h, warnings, source: "ESPN", teamsMatched: { home: homeTeam.displayName || homeTeam.name, away: awayTeam.displayName || awayTeam.name } };
+}
+
 export async function GET(request) {
   const params = new URL(request.url).searchParams;
   const homeName = (params.get("homeName") || "").trim();
@@ -486,9 +585,10 @@ export async function GET(request) {
   if (needsTopUp) {
     // Try both fallback providers independently. A restriction or outage in
     // one provider must not prevent valid results from the other being used.
-    const [apiFootballResult, footballDataResult] = await Promise.allSettled([
+    const [apiFootballResult, footballDataResult, espnResult] = await Promise.allSettled([
       getApiFootballForm(homeId, awayId),
       getFootballDataForm(homeName, awayName, leagueName),
+      getEspnForm(homeName, awayName, leagueName),
     ]);
     const apiFallback = apiFootballResult.status === "fulfilled"
       ? apiFootballResult.value
@@ -496,28 +596,42 @@ export async function GET(request) {
     const dataFallback = footballDataResult.status === "fulfilled"
       ? footballDataResult.value
       : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`Football-Data.org: ${footballDataResult.reason?.message || "request failed"}`] };
+    const espnFallback = espnResult.status === "fulfilled"
+      ? espnResult.value
+      : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`ESPN: ${espnResult.reason?.message || "request failed"}`] };
 
     const homeRecent = mergeRecentMatches(
-      mergeRecentMatches(goalData.homeRecent, apiFallback.homeRecent),
-      dataFallback.homeRecent
+      mergeRecentMatches(
+        mergeRecentMatches(goalData.homeRecent, apiFallback.homeRecent),
+        dataFallback.homeRecent
+      ),
+      espnFallback.homeRecent
     );
     const awayRecent = mergeRecentMatches(
-      mergeRecentMatches(goalData.awayRecent, apiFallback.awayRecent),
-      dataFallback.awayRecent
+      mergeRecentMatches(
+        mergeRecentMatches(goalData.awayRecent, apiFallback.awayRecent),
+        dataFallback.awayRecent
+      ),
+      espnFallback.awayRecent
     );
     const headToHead = goalData.headToHead.length
       ? goalData.headToHead
-      : mergeRecentMatches(apiFallback.headToHead, dataFallback.headToHead);
+      : mergeRecentMatches(
+          mergeRecentMatches(apiFallback.headToHead, dataFallback.headToHead),
+          espnFallback.headToHead
+        );
     const warnings = [
       ...(goalError ? [`GOAL API: ${goalError.message || "No recent results returned."}`] : (goalData.warnings || [])),
       ...(apiFallback.warnings || []),
       ...(dataFallback.warnings || []),
+      ...(espnFallback.warnings || []),
       ...(homeRecent.length < 5 ? [`Only ${homeRecent.length} completed recent matches could be retrieved for ${homeName} from the available providers.`] : []),
       ...(awayRecent.length < 5 ? [`Only ${awayRecent.length} completed recent matches could be retrieved for ${awayName} from the available providers.`] : []),
     ];
     const sources = ["GOAL API"];
     if (apiFallback.homeRecent.length || apiFallback.awayRecent.length) sources.push("API-Football");
     if (dataFallback.homeRecent.length || dataFallback.awayRecent.length) sources.push("Football-Data.org");
+    if (espnFallback.homeRecent.length || espnFallback.awayRecent.length) sources.push("ESPN");
 
     return NextResponse.json({
       ...goalData,
