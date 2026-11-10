@@ -169,6 +169,7 @@ export default function Home() {
     async function loadFixtures() {
       setLoadingFixtures(true);
       setFixturesError("");
+      setSelectedLeague("All leagues");
 
       try {
         const response = await fetch("/api/fixtures?date=" + encodeURIComponent(selectedDate));
@@ -385,7 +386,7 @@ export default function Home() {
         </div>
 
         <div className="match-list">
-          {loadingFixtures && <p className="empty-state">Loading today's fixtures...</p>}
+          {loadingFixtures && <p className="empty-state">Loading fixtures for {selectedDate}...</p>}
 
           {!loadingFixtures && fixturesError && (
             <div className="empty-state">
