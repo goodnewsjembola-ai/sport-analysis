@@ -95,6 +95,51 @@ function getConfidence(percent) {
   return { level, strongest };
 }
 
+function formatResultDate(value) {
+  if (!value) return "Date unavailable";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Date unavailable";
+  return new Intl.DateTimeFormat("en-NG", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Africa/Lagos",
+  }).format(date);
+}
+
+function getTeamResult(fixture, teamId) {
+  const homeId = fixture.teams?.home?.id;
+  const isHome = Number(homeId) === Number(teamId);
+  const team = isHome ? fixture.teams?.home : fixture.teams?.away;
+  const opponent = isHome ? fixture.teams?.away : fixture.teams?.home;
+  const teamGoals = isHome ? fixture.goals?.home : fixture.goals?.away;
+  const opponentGoals = isHome ? fixture.goals?.away : fixture.goals?.home;
+
+  if (teamGoals === null || teamGoals === undefined || opponentGoals === null || opponentGoals === undefined) return null;
+
+  const result = teamGoals > opponentGoals ? "W" : teamGoals < opponentGoals ? "L" : "D";
+  return {
+    result,
+    teamName: team?.name || "Team",
+    opponent: opponent?.name || "Opponent",
+    score: `${teamGoals} - ${opponentGoals}`,
+    date: formatResultDate(fixture.fixture?.date),
+    homeAway: isHome ? "Home" : "Away",
+  };
+}
+
+function getHeadToHeadResult(fixture) {
+  const homeGoals = fixture.goals?.home;
+  const awayGoals = fixture.goals?.away;
+  if (homeGoals === null || homeGoals === undefined || awayGoals === null || awayGoals === undefined) return null;
+  return {
+    home: fixture.teams?.home?.name || "Home",
+    away: fixture.teams?.away?.name || "Away",
+    score: `${homeGoals} - ${awayGoals}`,
+    date: formatResultDate(fixture.fixture?.date),
+    result: homeGoals > awayGoals ? "Home win" : homeGoals < awayGoals ? "Away win" : "Draw",
+  };
+}
+
 export default function Home() {
   const [activeMarket, setActiveMarket] = useState("All markets");
   const [search, setSearch] = useState("");
@@ -106,6 +151,9 @@ export default function Home() {
   const [analysisByFixture, setAnalysisByFixture] = useState({});
   const [analysisLoading, setAnalysisLoading] = useState(null);
   const [analysisErrors, setAnalysisErrors] = useState({});
+  const [formByFixture, setFormByFixture] = useState({});
+  const [formLoading, setFormLoading] = useState(null);
+  const [formErrors, setFormErrors] = useState({});
 
   useEffect(() => {
     let cancelled = false;
@@ -142,7 +190,7 @@ export default function Home() {
     };
   }, []);
 
-  async function toggleAnalysis(fixtureId, force = false) {
+  async function toggleAnalysis(fixtureId, force = false, homeId = null, awayId = null, season = null) {
     if (!fixtureId) return;
 
     if (openAnalysis === fixtureId && !force) {
@@ -170,6 +218,26 @@ export default function Home() {
       }
 
       setAnalysisByFixture((current) => ({ ...current, [fixtureId]: result }));
+
+      if (homeId && awayId) {
+        setFormLoading(fixtureId);
+        setFormErrors((current) => ({ ...current, [fixtureId]: "" }));
+        try {
+          const formParams = new URLSearchParams({ home: String(homeId), away: String(awayId) });
+          if (season) formParams.set("season", String(season));
+          const formResponse = await fetch(`/api/team-form?${formParams.toString()}`);
+          const formData = await formResponse.json();
+          if (!formResponse.ok) throw new Error(formData.error || "Recent form could not be loaded.");
+          setFormByFixture((current) => ({ ...current, [fixtureId]: formData }));
+        } catch (formError) {
+          setFormErrors((current) => ({
+            ...current,
+            [fixtureId]: formError.message || "Unable to load recent form.",
+          }));
+        } finally {
+          setFormLoading(null);
+        }
+      }
     } catch (error) {
       setAnalysisErrors((current) => ({
         ...current,
@@ -296,7 +364,7 @@ export default function Home() {
                 <div className="match-status">{getStatusLabel(fixture.fixture?.status?.short)}</div>
                 <button
                   className="analysis-button"
-                  onClick={() => toggleAnalysis(fixtureId)}
+                  onClick={() => toggleAnalysis(fixtureId, false, fixture.teams?.home?.id, fixture.teams?.away?.id, fixture.league?.season)}
                   aria-expanded={openAnalysis === fixtureId}
                 >
                   {openAnalysis === fixtureId ? "Close analysis" : "View analysis"} <span>↗</span>
@@ -313,7 +381,12 @@ export default function Home() {
                             delete next[fixtureId];
                             return next;
                           });
-                          toggleAnalysis(fixtureId, true);
+                          setFormByFixture((current) => {
+                            const next = { ...current };
+                            delete next[fixtureId];
+                            return next;
+                          });
+                          toggleAnalysis(fixtureId, true, fixture.teams?.home?.id, fixture.teams?.away?.id, fixture.league?.season);
                         }}>Try again</button>
                       </div>
                     )}
@@ -415,6 +488,55 @@ export default function Home() {
                                 <span className="team-goal-explanation">{explainProviderLine(awayGoals)}</span>
                               </div>
                             </div>
+                          </section>
+
+                          <section className="form-section" aria-label="Recent form and head to head">
+                            <div className="form-section-heading">
+                              <div><small>TEAM PERFORMANCE</small><h4>Recent form <em>& history.</em></h4></div>
+                              <span>LAST 5 MATCHES</span>
+                            </div>
+                            {formLoading === fixtureId && <p className="form-message">Loading recent results and previous meetings...</p>}
+                            {formErrors[fixtureId] && <p className="form-message form-error">{formErrors[fixtureId]}</p>}
+                            {formByFixture[fixtureId] && (() => {
+                              const form = formByFixture[fixtureId];
+                              const homeId = fixture.teams?.home?.id;
+                              const awayId = fixture.teams?.away?.id;
+                              const homeResults = (form.homeRecent || []).map((match) => getTeamResult(match, homeId)).filter(Boolean);
+                              const awayResults = (form.awayRecent || []).map((match) => getTeamResult(match, awayId)).filter(Boolean);
+                              const meetings = (form.headToHead || []).map(getHeadToHeadResult).filter(Boolean);
+                              const renderTeamForm = (name, results) => (
+                                <div className="form-team-card">
+                                  <h5>{name}</h5>
+                                  {results.length ? (
+                                    <div className="form-results">
+                                      {results.map((match, index) => (
+                                        <div className="form-result-row" key={`${match.date}-${index}`}>
+                                          <span className={`form-result-badge result-${match.result.toLowerCase()}`}>{match.result}</span>
+                                          <span className="form-opponent">{match.opponent}<small>{match.homeAway} · {match.date}</small></span>
+                                          <strong>{match.score}</strong>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : <p className="form-message">No completed recent matches available.</p>}
+                                </div>
+                              );
+                              return (
+                                <>
+                                  <div className="form-teams-grid">
+                                    {renderTeamForm(fixture.teams?.home?.name || "Home team", homeResults)}
+                                    {renderTeamForm(fixture.teams?.away?.name || "Away team", awayResults)}
+                                  </div>
+                                  <div className="h2h-block">
+                                    <div className="h2h-title"><strong>Head-to-head</strong><span>PREVIOUS MEETINGS</span></div>
+                                    {meetings.length ? meetings.map((meeting, index) => (
+                                      <div className="h2h-row" key={`${meeting.date}-${index}`}>
+                                        <span>{meeting.date}</span><strong>{meeting.home} <em>{meeting.score}</em> {meeting.away}</strong><small>{meeting.result}</small>
+                                      </div>
+                                    )) : <p className="form-message">No previous meetings found in the provider's data.</p>}
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </section>
                           {prediction.advice && <p className="prediction-advice"><b>Provider advice:</b> {prediction.advice}</p>}
                           <p className="prediction-disclaimer">These are third-party statistical estimates, not guaranteed results. Availability and detail depend on the provider's data for this match.</p>
