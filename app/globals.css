@@ -58,3 +58,27 @@ footer{padding:35px 9%;border-top:1px solid var(--line);display:flex;align-items
 .prediction-error{color:#e3a19b}
 .prediction-error button{display:block;margin-top:10px;background:transparent;border:1px solid var(--line);color:var(--gold-light);padding:8px 12px;font-size:9px;cursor:pointer}
 @media(max-width:620px){.prediction-panel{padding:15px}.prediction-stats{gap:6px}.prediction-stat{padding:10px}.prediction-stat strong{font-size:20px}.prediction-details{grid-template-columns:1fr}.prediction-heading h3{font-size:22px}}
+
+
+/* Premium team-goals estimate cards */
+.prediction-details{grid-template-columns:repeat(2,minmax(0,1fr))}
+.prediction-detail-card{background:#141a15;border:1px solid #ffffff12;padding:16px}
+.prediction-detail-card strong{font-size:14px;color:var(--gold-light)}
+.team-goals-section{margin-top:12px;padding:18px;background:linear-gradient(135deg,#151c16,#101511);border:1px solid var(--line)}
+.team-goals-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:15px}
+.team-goals-heading>div{display:flex;align-items:center;gap:12px}
+.goals-heading-mark{width:30px;height:30px;display:grid;place-items:center;border:1px solid #c9a45c55;color:var(--gold);font-family:'Playfair Display',serif;font-size:13px}
+.team-goals-heading small{display:block;color:#8e998b;font-size:8px;letter-spacing:1.5px}
+.team-goals-heading h4{font-family:'Playfair Display',serif;font-weight:500;font-size:20px;margin:4px 0 0;color:var(--white)}
+.team-goals-heading h4 em{color:var(--gold);font-weight:500}
+.provider-estimate-label{font-size:7px;letter-spacing:1.2px;color:#aab79f;border:1px solid #7b9b6840;padding:7px 9px}
+.team-goals-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.team-goal-tile{position:relative;min-width:0;padding:17px;background:#0d120e;border:1px solid #ffffff12;overflow:hidden}
+.team-goal-tile:after{content:"";position:absolute;width:90px;height:90px;right:-35px;bottom:-45px;border:1px solid #c9a45c20;border-radius:50%}
+.team-goal-side{display:flex;align-items:center;gap:8px;color:#aab2a5;font-size:8px;letter-spacing:1.5px}
+.team-goal-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.home-dot{background:var(--gold);box-shadow:0 0 10px #c9a45c70}
+.away-dot{background:var(--green);box-shadow:0 0 10px #7b9b6870}
+.team-goal-tile strong{display:block;margin:13px 0 5px;font-family:'Playfair Display',serif;font-size:clamp(25px,3vw,34px);font-weight:500;line-height:1.1;color:var(--gold-light)}
+.team-goal-caption{font-size:9px;color:#7f897d}
+@media(max-width:620px){.prediction-details{grid-template-columns:1fr}.team-goals-section{padding:13px}.team-goals-heading h4{font-size:18px}.provider-estimate-label{font-size:6px;padding:6px}.team-goals-grid{gap:7px}.team-goal-tile{padding:12px}.team-goal-tile strong{font-size:25px}.team-goal-side{font-size:7px;letter-spacing:1px}}
