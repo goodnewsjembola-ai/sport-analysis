@@ -53,7 +53,7 @@ async function apiFootball(path, key) {
 function sortApiFootballRecent(items) {
   return (items || [])
     .filter((match) => match.fixture?.status?.short === "FT"
-      && match.goals?.home !== null && match.goals?.away !== null)
+      && Number.isFinite(Number(match.goals?.home)) && Number.isFinite(Number(match.goals?.away)))
     .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
     .slice(0, 5);
 }
