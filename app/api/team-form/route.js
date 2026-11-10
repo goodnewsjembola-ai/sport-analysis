@@ -61,42 +61,45 @@ function sortApiFootballRecent(items) {
 async function getApiFootballForm(homeId, awayId) {
   const key = process.env.API_FOOTBALL_KEY;
   if (!key) throw new Error("API_FOOTBALL_KEY is missing from the server environment.");
-  if (!/^\d+$/.test(String(homeId || "")) || !/^\d+$/.test(String(awayId || ""))) {
+  if (!/^\\d+$/.test(String(homeId || "")) || !/^\\d+$/.test(String(awayId || ""))) {
     throw new Error("The fixture did not include valid API-Football team IDs for recent-form lookup.");
   }
 
-  // The user's API-Football Free plan does not allow the "last" parameter.
-  // Use supported date windows instead, then sort and keep the latest five FT
-  // results locally. Recent form is limited to the last 365 days.
+  // API-Football requires season whenever the fixtures request includes team.
+  // Check the current and previous season, then keep only matches in the
+  // rolling one-year window so old results are never presented as recent form.
   const today = new Date();
   const to = today.toISOString().slice(0, 10);
   const recentStart = new Date(today);
   recentStart.setUTCDate(recentStart.getUTCDate() - 365);
   const from = recentStart.toISOString().slice(0, 10);
-  const h2hStart = new Date(today);
-  h2hStart.setUTCFullYear(h2hStart.getUTCFullYear() - 5);
-  const h2hFrom = h2hStart.toISOString().slice(0, 10);
+  const currentSeason = today.getUTCFullYear();
+  const seasons = [currentSeason, currentSeason - 1];
 
-  const [homeData, awayData, h2hData] = await Promise.all([
-    apiFootball(`/fixtures?team=${homeId}&from=${from}&to=${to}`, key),
-    apiFootball(`/fixtures?team=${awayId}&from=${from}&to=${to}`, key),
-    apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}&from=${h2hFrom}&to=${to}`, key),
+  const [homeResponses, awayResponses, h2hData] = await Promise.all([
+    Promise.all(seasons.map((season) =>
+      apiFootball(`/fixtures?team=${homeId}&season=${season}&from=${from}&to=${to}`, key)
+    )),
+    Promise.all(seasons.map((season) =>
+      apiFootball(`/fixtures?team=${awayId}&season=${season}&from=${from}&to=${to}`, key)
+    )),
+    apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}&from=${from}&to=${to}`, key),
   ]);
 
-  const homeRecent = sortApiFootballRecent(homeData);
-  const awayRecent = sortApiFootballRecent(awayData);
+  const homeRecent = sortApiFootballRecent(homeResponses.flat());
+  const awayRecent = sortApiFootballRecent(awayResponses.flat());
   const headToHead = sortApiFootballRecent(h2hData);
   const warnings = [];
-  if (!homeRecent.length) warnings.push(`API-Football returned no completed recent fixtures for the home team (ID ${homeId}).`);
-  if (!awayRecent.length) warnings.push(`API-Football returned no completed recent fixtures for the away team (ID ${awayId}).`);
-  if (!headToHead.length) warnings.push("API-Football returned no completed head-to-head fixtures for these teams.");
+  if (!homeRecent.length) warnings.push(`API-Football returned no completed recent fixtures for the home team (ID ${homeId}) in the last 365 days.`);
+  if (!awayRecent.length) warnings.push(`API-Football returned no completed recent fixtures for the away team (ID ${awayId}) in the last 365 days.`);
+  if (!headToHead.length) warnings.push("API-Football returned no completed head-to-head fixtures in the last 365 days.");
 
   return {
     homeRecent,
     awayRecent,
     headToHead,
     warnings,
-    formNotice: "Recent form uses each team's latest completed matches across competitions from API-Football. Head-to-head meetings are listed separately. Availability depends on the competition and API plan.",
+    formNotice: "Recent form uses each team's latest completed matches across competitions from the last 365 days. Head-to-head meetings are listed separately. Availability depends on the competition and API plan.",
     source: "API-Football",
   };
 }
