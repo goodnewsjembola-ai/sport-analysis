@@ -454,7 +454,19 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   });
   const homeRecent = attachFixtureTeamId(completed(homeBody), homeTeam, homeApiId);
   const awayRecent = attachFixtureTeamId(completed(awayBody), awayTeam, awayApiId);
-  const headToHead = completed(h2hBody, true, 10);
+  // The dedicated GOAL H2H endpoint can be incomplete. Also intersect
+  // both clubs' own completed-results feeds to recover meetings independently.
+  const teamMeetings = [...homeBody, ...awayBody].filter((match) => {
+    const standard = goalFixtureToStandard(match);
+    const home = normalize(standard.teams.home.name);
+    const away = normalize(standard.teams.away.name);
+    return (home === normalize(homeTeam.name) && away === normalize(awayTeam.name))
+      || (home === normalize(awayTeam.name) && away === normalize(homeTeam.name));
+  });
+  const headToHead = mergeH2HMatches(
+    completed(h2hBody, true, 100),
+    completed(teamMeetings, true, 100)
+  );
   if (!homeRecent.length && !awayRecent.length && !headToHead.length) {
     throw new Error(requestWarnings.join(" ") || "GOAL API returned no completed results for either team.");
   }
@@ -740,6 +752,18 @@ async function getApiNinjasForm(homeName, awayName) {
     : [];
   const homeRecent = recent(homeResponse, homeTeam);
   const awayRecent = recent(awayResponse, awayTeam);
+  const allNinjaMatches = [
+    ...(homeResponse.status === "fulfilled" ? homeResponse.value : []),
+    ...(awayResponse.status === "fulfilled" ? awayResponse.value : []),
+  ];
+  const ninjaMeetings = allNinjaMatches.filter((match) => {
+    const home = normalize(match.home_team?.name);
+    const away = normalize(match.away_team?.name);
+    return (home === normalize(homeTeam.name) && away === normalize(awayTeam.name))
+      || (home === normalize(awayTeam.name) && away === normalize(homeTeam.name));
+  }).filter((match) => ["final", "finished", "ft", "full_time"].includes(String(match.status || "").toLowerCase())
+    && match.home_score != null && match.away_score != null)
+    .map(apiNinjasMatchToStandard);
   const warnings = [
     ...(homeResponse.status === "rejected" ? [`API Ninjas could not retrieve ${homeTeam.name}'s matches: ${homeResponse.reason?.message || "request failed"}`] : []),
     ...(awayResponse.status === "rejected" ? [`API Ninjas could not retrieve ${awayTeam.name}'s matches: ${awayResponse.reason?.message || "request failed"}`] : []),
@@ -749,7 +773,7 @@ async function getApiNinjasForm(homeName, awayName) {
   return {
     homeRecent,
     awayRecent,
-    headToHead: [],
+    headToHead: mergeH2HMatches(ninjaMeetings),
     warnings,
     source: "API Ninjas",
     teamsMatched: { home: homeTeam.name, away: awayTeam.name },
@@ -791,7 +815,7 @@ function findEspnTeam(teams, targetName) {
     || null;
 }
 
-function espnEventToMatch(event) {
+function espnEventToMatch(event, includeOlderMeetings = false) {
   const competition = event.competitions?.[0] || {};
   const competitors = competition.competitors || [];
   const home = competitors.find((item) => item.homeAway === "home") || competitors[0];
@@ -800,7 +824,7 @@ function espnEventToMatch(event) {
     || ["STATUS_FINAL", "STATUS_FULL_TIME"].includes(event.status?.type?.name);
   if (!completed || !home || !away || home.score == null || away.score == null) return null;
   const timestamp = event.date ? Math.floor(Date.parse(event.date) / 1000) : 0;
-  if (!timestamp || timestamp < Math.floor((Date.now() - 365 * 86400000) / 1000)) return null;
+  if (!timestamp || (!includeOlderMeetings && timestamp < Math.floor((Date.now() - 365 * 86400000) / 1000))) return null;
   const homeScore = Number(home.score);
   const awayScore = Number(away.score);
   if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null;
@@ -839,7 +863,7 @@ async function getEspnForm(homeName, awayName, leagueName) {
   const homeRecent = matchesFrom(homeSchedule);
   const awayRecent = matchesFrom(awaySchedule);
   const h2h = [...(homeSchedule.events || []), ...(awaySchedule.events || [])]
-    .map(espnEventToMatch)
+    .map((event) => espnEventToMatch(event, true))
     .filter((match) => match && (
       (normalize(match.teams.home.name) === normalize(homeTeam.displayName || homeTeam.name)
         && normalize(match.teams.away.name) === normalize(awayTeam.displayName || awayTeam.name))
@@ -996,16 +1020,22 @@ export async function GET(request) {
 
   // H2H must be retrieved independently of recent-form top-ups. Both
   // teams can already have five recent matches while the primary H2H feed is empty.
-  if ((goalData.headToHead || []).length < 10) {
-    try {
-      const apiH2H = await getApiFootballH2H(homeName, awayName);
-      const headToHead = mergeH2HMatches(goalData.headToHead || [], apiH2H);
-      if (headToHead.length) goalData = { ...goalData, headToHead };
-    } catch (error) {
-      console.error(`API-Football H2H fallback failed for ${homeName} vs ${awayName}:`, error);
-    }
-  }
-  return NextResponse.json(goalData);
+  // Build H2H from independent providers even when both teams already
+  // have five recent matches. Recent-form arrays are left untouched.
+  const [footballDataH2H, espnH2H, ninjasH2H, apiFootballH2H] = await Promise.allSettled([
+    getFootballDataForm(homeName, awayName, leagueName),
+    getEspnForm(homeName, awayName, leagueName),
+    getApiNinjasForm(homeName, awayName),
+    getApiFootballH2H(homeName, awayName),
+  ]);
+  const headToHead = mergeH2HMatches(
+    goalData.headToHead || [],
+    footballDataH2H.status === "fulfilled" ? footballDataH2H.value.headToHead : [],
+    espnH2H.status === "fulfilled" ? espnH2H.value.headToHead : [],
+    ninjasH2H.status === "fulfilled" ? ninjasH2H.value.headToHead : [],
+    apiFootballH2H.status === "fulfilled" ? apiFootballH2H.value : []
+  );
+  return NextResponse.json({ ...goalData, headToHead });
 
 
 }
