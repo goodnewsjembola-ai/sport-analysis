@@ -76,7 +76,9 @@ async function getApiFootballForm(homeId, awayId) {
   const currentSeason = today.getUTCFullYear();
   const seasons = [currentSeason, currentSeason - 1];
 
-  const [homeResponses, awayResponses, h2hData] = await Promise.all([
+  // Fetch each team's form independently so one provider failure does not
+  // discard the other team's available results or the H2H response.
+  const [homeRequest, awayRequest, h2hRequest] = await Promise.allSettled([
     Promise.all(seasons.map((season) =>
       apiFootball(`/fixtures?team=${homeId}&season=${season}&from=${from}&to=${to}`, key)
     )),
@@ -86,13 +88,15 @@ async function getApiFootballForm(homeId, awayId) {
     apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}&from=${from}&to=${to}`, key),
   ]);
 
-  const homeRecent = sortApiFootballRecent(homeResponses.flat());
-  const awayRecent = sortApiFootballRecent(awayResponses.flat());
-  const headToHead = sortApiFootballRecent(h2hData);
+  const homeRecent = homeRequest.status === "fulfilled" ? sortApiFootballRecent(homeRequest.value.flat()) : [];
+  const awayRecent = awayRequest.status === "fulfilled" ? sortApiFootballRecent(awayRequest.value.flat()) : [];
+  const headToHead = h2hRequest.status === "fulfilled" ? sortApiFootballRecent(h2hRequest.value) : [];
   const warnings = [];
+  if (homeRequest.status === "rejected") warnings.push(`API-Football could not retrieve the home team's results: ${homeRequest.reason?.message || "request failed"}`);
+  if (awayRequest.status === "rejected") warnings.push(`API-Football could not retrieve the away team's results: ${awayRequest.reason?.message || "request failed"}`);
+  if (h2hRequest.status === "rejected") warnings.push(`API-Football head-to-head request failed: ${h2hRequest.reason?.message || "request failed"}`);
   if (!homeRecent.length) warnings.push(`API-Football returned no completed recent fixtures for the home team (ID ${homeId}) in the last 365 days.`);
   if (!awayRecent.length) warnings.push(`API-Football returned no completed recent fixtures for the away team (ID ${awayId}) in the last 365 days.`);
-  if (!headToHead.length) warnings.push("API-Football returned no completed head-to-head fixtures in the last 365 days.");
 
   return {
     homeRecent,
@@ -292,6 +296,24 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
     source: "GOAL API", teamsMatched: { home: homeTeam.name, away: awayTeam.name } };
 }
 
+function mergeRecentMatches(primary, fallback) {
+  const seen = new Set();
+  return [...(primary || []), ...(fallback || [])]
+    .filter((match) => {
+      const fixture = match.fixture || {};
+      const home = normalize(match.teams?.home?.name);
+      const away = normalize(match.teams?.away?.name);
+      const identity = fixture.id
+        ? `id:${fixture.id}`
+        : `match:${fixture.timestamp || fixture.date || ""}:${home}:${away}:${match.goals?.home}-${match.goals?.away}`;
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    })
+    .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
+    .slice(0, 5);
+}
+
 async function footballData(path, token) {
   const response = await fetch(`https://api.football-data.org/v4${path}`, {
     headers: { "X-Auth-Token": token },
@@ -361,21 +383,58 @@ export async function GET(request) {
   }
 
 
-  // GOAL API is primary for non-NPFL recent form; API-Football remains the fallback.
+  // GOAL API is primary. Top up each team's list independently from
+  // API-Football whenever GOAL API supplies fewer than five completed games.
+  let goalData;
+  let goalError = null;
   try {
-    const goalData = await getGoalApiForm(homeName, awayName, homeId, awayId);
-    if (goalData.homeRecent.length || goalData.awayRecent.length || goalData.headToHead.length) return NextResponse.json(goalData);
-    throw new Error(goalData.warnings.join(" ") || "GOAL API returned no completed results.");
-  } catch (goalError) {
-    console.error(`GOAL API recent-form request failed for ${leagueName}:`, goalError);
+    goalData = await getGoalApiForm(homeName, awayName, homeId, awayId);
+  } catch (error) {
+    goalError = error;
+    console.error(`GOAL API recent-form request failed for ${leagueName}:`, error);
+    goalData = { homeRecent: [], awayRecent: [], headToHead: [], warnings: [], source: "GOAL API" };
+  }
+
+  const needsTopUp = goalData.homeRecent.length < 5 || goalData.awayRecent.length < 5;
+  if (needsTopUp) {
     try {
       const fallback = await getApiFootballForm(homeId, awayId);
-      return NextResponse.json({ ...fallback, warnings: [`GOAL API fallback: ${goalError.message}`, ...(fallback.warnings || [])], formNotice: `Recent form for ${leagueName} is supplied by API-Football because GOAL API could not return matching results.` });
+      const homeRecent = mergeRecentMatches(goalData.homeRecent, fallback.homeRecent);
+      const awayRecent = mergeRecentMatches(goalData.awayRecent, fallback.awayRecent);
+      const headToHead = goalData.headToHead.length
+        ? goalData.headToHead
+        : fallback.headToHead;
+      const warnings = [
+        ...(goalError ? [`GOAL API: ${goalError.message || "No recent results returned."}`] : (goalData.warnings || [])),
+        ...(fallback.warnings || []),
+        ...(homeRecent.length < 5 ? [`Only ${homeRecent.length} completed recent matches could be retrieved for ${homeName} from the available providers.`] : []),
+        ...(awayRecent.length < 5 ? [`Only ${awayRecent.length} completed recent matches could be retrieved for ${awayName} from the available providers.`] : []),
+      ];
+      return NextResponse.json({
+        ...goalData,
+        homeRecent,
+        awayRecent,
+        headToHead,
+        warnings,
+        source: "GOAL API + API-Football",
+        formNotice: `Recent form combines the latest completed results from GOAL API and API-Football when either provider has fewer than five matches for a team. No unrelated teams or unfinished matches are included. Head-to-head meetings are listed separately.`,
+      });
     } catch (apiError) {
-      console.error(`Both recent-form providers failed for ${leagueName}:`, apiError);
-      return NextResponse.json({ homeRecent: [], awayRecent: [], headToHead: [], warnings: [`GOAL API: ${goalError.message || "No recent results returned."}`, `API-Football: ${apiError.message || "No recent results returned."}`], formNotice: `Recent form for ${leagueName} could not be retrieved. No older-season or unrelated results are substituted.`, source: "GOAL API + API-Football" });
+      console.error(`API-Football recent-form top-up failed for ${leagueName}:`, apiError);
+      const warnings = [
+        ...(goalError ? [`GOAL API: ${goalError.message || "No recent results returned."}`] : (goalData.warnings || [])),
+        `API-Football: ${apiError.message || "Recent-form top-up failed."}`,
+      ];
+      return NextResponse.json({
+        ...goalData,
+        warnings,
+        source: "GOAL API",
+        formNotice: "Recent form uses completed results available from GOAL API. API-Football could not supply any missing results.",
+      });
     }
   }
+
+  return NextResponse.json(goalData);
 
 
 }
