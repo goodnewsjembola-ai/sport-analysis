@@ -536,7 +536,7 @@ export default function Home() {
                 {openAnalysis === fixtureId && (
                   <div className="prediction-panel">
                     {analysisLoading === fixtureId && <p className="prediction-message">Preparing match analysis...</p>}
-                    {analysisErrors[fixtureId] && (
+                    {analysisErrors[fixtureId] && !buildFormModel(formByFixture[fixtureId], fixture.teams?.home?.name || "Home", fixture.teams?.away?.name || "Away") && (
                       <div className="prediction-message prediction-error">
                         <p>{analysisErrors[fixtureId]}</p>
                         <button onClick={() => {
@@ -624,7 +624,7 @@ export default function Home() {
                                   </div>
                                 )}
                                 <p>{confidence
-                                  ? `Strongest outcome probability: ${confidence.strongest}%. This is a simple G Sport rating based on {item.model ? "the form model estimate" : "the provider's 1X2 percentages"}.`
+                                  ? `Strongest outcome probability: ${confidence.strongest}%. This is a simple G Sport rating based on ${item.model ? "the form model estimate" : "the provider's 1X2 percentages"}.`
                                   : "The provider has not supplied enough 1X2 probability data to calculate this indicator."}</p>
                               </section>
                             );
