@@ -133,25 +133,33 @@ function getTeamResult(fixture, teamId, teamName) {
   const awayName = normalizeFormTeamName(away.name);
   const homeIdMatch = home.id != null && teamId != null && String(home.id) === String(teamId);
   const awayIdMatch = away.id != null && teamId != null && String(away.id) === String(teamId);
-  const homeNameMatch = wantedName && (homeName === wantedName || homeName.includes(wantedName) || wantedName.includes(homeName));
-  const awayNameMatch = wantedName && (awayName === wantedName || awayName.includes(wantedName) || wantedName.includes(awayName));
-  const isHome = homeNameMatch !== awayNameMatch
-    ? Boolean(homeNameMatch)
-    : homeIdMatch !== awayIdMatch
-      ? Boolean(homeIdMatch)
-      : true;
+
+  // Prefer an exact normalized club-name match. Provider IDs are not shared
+  // across feeds, and partial-name matches can select a reserve/youth side.
+  const homeNameMatch = Boolean(wantedName && homeName && homeName === wantedName);
+  const awayNameMatch = Boolean(wantedName && awayName && awayName === wantedName);
+  let isHome;
+  if (homeNameMatch !== awayNameMatch) {
+    isHome = homeNameMatch;
+  } else if (!homeNameMatch && !awayNameMatch && homeIdMatch !== awayIdMatch) {
+    isHome = homeIdMatch;
+  } else {
+    // Never guess the side: a guessed side creates an incorrect result and opponent.
+    return null;
+  }
+
   const team = isHome ? home : away;
   const opponent = isHome ? away : home;
   const teamGoals = isHome ? fixture.goals?.home : fixture.goals?.away;
   const opponentGoals = isHome ? fixture.goals?.away : fixture.goals?.home;
 
-  if (teamGoals === null || teamGoals === undefined || opponentGoals === null || opponentGoals === undefined) return null;
+  if (!team?.name || !opponent?.name || teamGoals === null || teamGoals === undefined || opponentGoals === null || opponentGoals === undefined) return null;
 
   const result = teamGoals > opponentGoals ? "W" : teamGoals < opponentGoals ? "L" : "D";
   return {
     result,
-    teamName: team?.name || teamName || "Team",
-    opponent: opponent?.name || "Opponent",
+    teamName: team.name,
+    opponent: opponent.name,
     score: `${teamGoals} - ${opponentGoals}`,
     date: formatResultDate(fixture.fixture?.date),
     homeAway: isHome ? "Home" : "Away",
@@ -605,7 +613,7 @@ export default function Home() {
                                       {results.map((match, index) => (
                                         <div className="form-result-row" key={`${match.date}-${index}`}>
                                           <span className={`form-result-badge result-${match.result.toLowerCase()}`}>{match.result}</span>
-                                          <span className="form-opponent">{match.opponent}<small>{match.homeAway} · {match.date}</small></span>
+                                          <span className="form-opponent">vs {match.opponent}<small>{match.homeAway} · {match.date}</small></span>
                                           <strong>{match.score}</strong>
                                         </div>
                                       ))}
