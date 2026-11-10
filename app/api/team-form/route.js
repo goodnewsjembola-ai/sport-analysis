@@ -265,7 +265,7 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   const requestWarnings = [
     ...(homeRequest.status === "rejected" ? [`GOAL API could not retrieve results for ${homeTeam.name}: ${homeRequest.reason?.message || "request failed"}`] : []),
     ...(awayRequest.status === "rejected" ? [`GOAL API could not retrieve results for ${awayTeam.name}: ${awayRequest.reason?.message || "request failed"}`] : []),
-    ...(h2hRequest.status === "rejected" ? [`GOAL API head-to-head is unavailable: ${h2hRequest.reason?.message || "request failed"}`] : []),
+    ...(h2hRequest.status === "rejected" && !String(h2hRequest.reason?.message || "").includes("HTTP 404") ? [`GOAL API head-to-head is unavailable: ${h2hRequest.reason?.message || "request failed"}`] : []),
   ];
   const asArray = (value) => Array.isArray(value) ? value : value?.matches || value?.results || value?.items || [];
   const completed = (items) => asArray(items)
