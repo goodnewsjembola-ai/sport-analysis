@@ -110,6 +110,97 @@ async function getGoalFixtures(date, key) {
     .filter((item) => item.teams.home.name && item.teams.away.name);
 }
 
+
+const API_NINJAS_COMPETITIONS = [
+  { code: "epl", name: "Premier League", country: "England" },
+  { code: "laliga", name: "La Liga", country: "Spain" },
+  { code: "bundesliga", name: "Bundesliga", country: "Germany" },
+  { code: "seriea", name: "Serie A", country: "Italy" },
+  { code: "ligue1", name: "Ligue 1", country: "France" },
+  { code: "ucl", name: "UEFA Champions League", country: "Europe" },
+  { code: "uel", name: "UEFA Europa League", country: "Europe" },
+  { code: "championship", name: "Championship", country: "England" },
+  { code: "leagueone", name: "League One", country: "England" },
+  { code: "leaguetwo", name: "League Two", country: "England" },
+  { code: "eredivisie", name: "Eredivisie", country: "Netherlands" },
+  { code: "primeiraliga", name: "Primeira Liga", country: "Portugal" },
+  { code: "mls", name: "MLS", country: "USA/Canada" },
+  { code: "scottishpremiership", name: "Scottish Premiership", country: "Scotland" },
+  { code: "superlig", name: "Süper Lig", country: "Türkiye" },
+  { code: "saudiproleague", name: "Saudi Pro League", country: "Saudi Arabia" },
+  { code: "cafcl", name: "CAF Champions League", country: "Africa" },
+];
+
+async function getApiNinjasFixtures(date, key) {
+  if (!key) throw new Error("API_NINJAS_KEY is not configured.");
+  const results = await Promise.allSettled(API_NINJAS_COMPETITIONS.map(async (competition) => {
+    const url = new URL("https://api.api-ninjas.com/v1/soccermatches");
+    url.searchParams.set("league", competition.code);
+    url.searchParams.set("date", date);
+    const response = await fetch(url, {
+      headers: { "X-Api-Key": key, Accept: "application/json" },
+      next: { revalidate: 600 },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = typeof body === "string" ? body : (body?.error || body?.message || JSON.stringify(body));
+      throw new Error(`${competition.name}: HTTP ${response.status} ${detail}`);
+    }
+    if (!Array.isArray(body)) throw new Error(`${competition.name}: unexpected response format`);
+    return body.map((match) => {
+      const kickoff = match.start_time || (match.date ? `${match.date}T12:00:00Z` : null);
+      const statusText = String(match.status || "").toLowerCase();
+      const statusMap = {
+        final: "FT", scheduled: "NS", in_progress: "LIVE",
+        postponed: "PST", canceled: "CANC", suspended: "ABD", delayed: "TBD",
+      };
+      const home = match.home_team || {};
+      const away = match.away_team || {};
+      return {
+        fixture: {
+          id: match.game_id,
+          date: kickoff,
+          timestamp: kickoff ? Math.floor(Date.parse(kickoff) / 1000) : 0,
+          status: { short: statusMap[statusText] || statusText.toUpperCase() || "NS" },
+          venue: match.venue?.name ? { name: match.venue.name, city: match.venue.city || null } : null,
+        },
+        league: {
+          id: match.league,
+          name: competition.name,
+          country: competition.country,
+          season: match.season || null,
+          logo: null,
+          round: match.round || null,
+        },
+        teams: {
+          home: { id: home.team_id, name: home.name, logo: null },
+          away: { id: away.team_id, name: away.name, logo: null },
+        },
+        goals: {
+          home: match.home_score === null || match.home_score === undefined ? null : Number(match.home_score),
+          away: match.away_score === null || match.away_score === undefined ? null : Number(match.away_score),
+        },
+      };
+    }).filter((fixture) => fixture.teams.home.name && fixture.teams.away.name);
+  }));
+  const fixtures = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  const errors = results.filter((result) => result.status === "rejected")
+    .map((result) => result.reason?.message || "request failed");
+  const unique = new Map();
+  for (const fixture of fixtures) {
+    const id = fixture.fixture.id || [
+      fixture.fixture.date,
+      fixture.teams.home.name,
+      fixture.teams.away.name,
+    ].join(":");
+    unique.set(String(id), fixture);
+  }
+  if (!unique.size && errors.length === API_NINJAS_COMPETITIONS.length) {
+    throw new Error(errors.slice(0, 4).join("; "));
+  }
+  return { fixtures: [...unique.values()], errors };
+}
+
 async function getFootballDataFixtures(date, token) {
   if (!token) throw new Error("FOOTBALL_DATA_TOKEN is not configured.");
   const url = new URL("https://api.football-data.org/v4/competitions/PL/matches");
@@ -201,10 +292,34 @@ export async function GET(request) {
     });
   }
 
+  // API Ninjas is the final current-season fallback. Query the major
+  // competitions independently so one unsupported/empty league does not
+  // prevent fixtures from the others from appearing.
+  let apiNinjasError = null;
+  try {
+    const apiNinjasResult = await getApiNinjasFixtures(date, process.env.API_NINJAS_KEY);
+    if (apiNinjasResult.fixtures.length) {
+      return Response.json({
+        date,
+        timezone: "Africa/Lagos",
+        results: apiNinjasResult.fixtures.length,
+        fixtures: apiNinjasResult.fixtures,
+        source: "API Ninjas",
+        fallback: true,
+        providers: apiNinjasResult.errors.length ? apiNinjasResult.errors : undefined,
+      });
+    }
+    apiNinjasError = apiNinjasResult.errors.join("; ") || "No fixtures returned for the selected date.";
+  } catch (error) {
+    apiNinjasError = error?.message || "Request failed";
+    console.error("API Ninjas fixtures request failed:", error);
+  }
+
   const diagnostics = [
     `API-Football: ${apiFootballError}`,
     `GOAL API: ${goalResult.status === "rejected" ? goalResult.reason?.message || "request failed" : "No fixtures returned for this date"}`,
     `Football-Data.org: ${footballDataResult.status === "rejected" ? footballDataResult.reason?.message || "request failed" : "No Premier League fixtures returned for this date"}`,
+    `API Ninjas: ${apiNinjasError}`,
   ];
   console.error("All fixture providers failed:", diagnostics);
 
