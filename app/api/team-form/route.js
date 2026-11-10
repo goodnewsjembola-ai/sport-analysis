@@ -253,46 +253,62 @@ function goalFixtureToStandard(match) {
 }
 
 async function getGoalTeamResults(teamId, key) {
-  // GOAL API documents GET /results/team/:teamId as the team results feed.
-  // Walk every page so a partial first page cannot leave a club with only
-  // one or two recent matches.
+  // GOAL API documents both /teams/:id/results and /results/team/:id.
+  // Query both routes independently: coverage can differ between the two
+  // feeds, and one empty route must not hide the other route's results.
   const limit = 100;
-  const rows = [];
-  let offset = 0;
-  for (let page = 0; page < 10; page += 1) {
-    const url = new URL(`https://api.goal-api.com/v1/results/team/${encodeURIComponent(teamId)}`);
-    url.searchParams.set("limit", String(limit));
-    url.searchParams.set("offset", String(offset));
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
-      next: { revalidate: 1800 },
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok || body?.success === false) {
-      throw new Error(body?.error?.message || body?.message || `GOAL API team-results request returned HTTP ${response.status}`);
+  const routes = [
+    `/teams/${encodeURIComponent(teamId)}/results`,
+    `/results/team/${encodeURIComponent(teamId)}`,
+  ];
+
+  async function readRoute(route) {
+    const rows = [];
+    let offset = 0;
+    for (let page = 0; page < 10; page += 1) {
+      const url = new URL(`https://api.goal-api.com/v1${route}`);
+      url.searchParams.set("limit", String(limit));
+      url.searchParams.set("offset", String(offset));
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+        next: { revalidate: 1800 },
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body?.success === false) {
+        throw new Error(body?.error?.message || body?.message || `GOAL API ${route} returned HTTP ${response.status}`);
+      }
+      const data = body?.data ?? body;
+      const nested = data?.data ?? data;
+      const list = Array.isArray(nested) ? nested
+        : Array.isArray(nested?.results) ? nested.results
+        : Array.isArray(nested?.matches) ? nested.matches
+        : Array.isArray(nested?.items) ? nested.items
+        : Array.isArray(nested?.fixtures) ? nested.fixtures
+        : Array.isArray(body?.results) ? body.results
+        : [];
+      rows.push(...list);
+      const pagination = body?.pagination || data?.pagination || nested?.pagination;
+      const hasMore = pagination?.hasMore === true || (!pagination && list.length === limit);
+      if (!hasMore || list.length === 0) break;
+      const nextOffset = Number(pagination?.offset) + Number(pagination?.limit || list.length);
+      offset = Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : offset + list.length;
     }
-    const data = body?.data ?? body;
-    const list = Array.isArray(data) ? data
-      : Array.isArray(data?.results) ? data.results
-      : Array.isArray(data?.matches) ? data.matches
-      : Array.isArray(data?.items) ? data.items
-      : Array.isArray(data?.fixtures) ? data.fixtures
-      : [];
-    rows.push(...list);
-    const pagination = body?.pagination || data?.pagination;
-    const hasMore = pagination?.hasMore === true
-      || (!pagination && list.length === limit);
-    if (!hasMore || list.length === 0) break;
-    const nextOffset = Number(pagination?.offset) + Number(pagination?.limit || list.length);
-    offset = Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : offset + list.length;
+    return rows;
   }
+
+  const responses = await Promise.allSettled(routes.map(readRoute));
+  const rows = responses.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  if (!rows.length && responses.every((result) => result.status === "rejected")) {
+    throw new Error(responses.map((result) => result.reason?.message || "request failed").join("; "));
+  }
+
   const seen = new Set();
   return rows.filter((match) => {
     const id = match.id || match.apiId || match.match_id || match.fixture?.id;
     const key = id ? `id:${id}` : JSON.stringify([
       match.kickoffUtc || match.matchDate || match.match_date || match.date || match.fixture?.date,
-      match.homeTeamId || match.homeTeam?.id || match.match_hometeam_id,
-      match.awayTeamId || match.awayTeam?.id || match.match_awayteam_id,
+      match.homeTeamId || match.homeTeam?.id || match.match_hometeam_id || match.home?.id,
+      match.awayTeamId || match.awayTeam?.id || match.match_awayteam_id || match.away?.id,
     ]);
     if (seen.has(key)) return false;
     seen.add(key);
