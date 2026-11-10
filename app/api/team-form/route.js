@@ -1,152 +1,154 @@
 import { NextResponse } from "next/server";
 
-export const revalidate = 3600;
+export const revalidate = 1800;
 
-const FINISHED_STATUSES = new Set(["FT", "AET", "PEN", "AWD", "WO"]);
+const COMPETITIONS = [
+  { code: "PL", names: ["premier league"] },
+  { code: "ELC", names: ["championship"] },
+  { code: "CL", names: ["uefa champions league", "champions league"] },
+  { code: "EC", names: ["european championship", "uefa euro"] },
+  { code: "FL1", names: ["ligue 1"] },
+  { code: "BL1", names: ["bundesliga"] },
+  { code: "SA", names: ["serie a"] },
+  { code: "DED", names: ["eredivisie"] },
+  { code: "PPL", names: ["primeira liga", "liga portugal"] },
+  { code: "CLI", names: ["copa libertadores"] },
+  { code: "PD", names: ["primera division", "la liga", "laliga"] },
+  { code: "BSA", names: ["campeonato brasileiro", "brasileirao"] },
+  { code: "WC", names: ["fifa world cup", "world cup"] },
+];
 
-function dateOnly(date) {
-  return date.toISOString().slice(0, 10);
+function normalize(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\b(fc|cf|afc|club|football club)\b/g, "")
+    .replace(/[^a-z0-9]/g, "");
 }
 
-function recentFinishedFixtures(fixtures, limit = 5) {
-  return (Array.isArray(fixtures) ? fixtures : [])
-    .filter((item) => FINISHED_STATUSES.has(item?.fixture?.status?.short))
-    .sort((a, b) => {
-      const aTime = Number(a?.fixture?.timestamp) || Date.parse(a?.fixture?.date) || 0;
-      const bTime = Number(b?.fixture?.timestamp) || Date.parse(b?.fixture?.date) || 0;
-      return bTime - aTime;
-    })
-    .slice(0, limit);
-}
-
-async function fetchFixtures(url, apiKey, label) {
-  try {
-    const response = await fetch(url, {
-      headers: { "x-apisports-key": apiKey },
-      next: { revalidate: 3600 },
-    });
-
-    let data;
-    try {
-      data = await response.json();
-    } catch {
-      return { fixtures: [], error: `${label}: provider returned an unreadable response (HTTP ${response.status}).` };
-    }
-
-    const providerErrors = data.errors && Object.keys(data.errors).length > 0
-      ? Object.values(data.errors).map((value) => String(value)).join("; ")
-      : "";
-
-    if (!response.ok || providerErrors) {
-      console.error("API-Football team-form request failed:", {
-        label,
-        status: response.status,
-        errors: data.errors,
-      });
-      return {
-        fixtures: [],
-        error: `${label}: ${providerErrors || `HTTP ${response.status}`}`,
-      };
-    }
-
-    return { fixtures: recentFinishedFixtures(data.response), error: null };
-  } catch (error) {
-    console.error("API-Football team-form network error:", label, error);
-    return { fixtures: [], error: `${label}: provider connection failed.` };
+async function footballData(path, token) {
+  const response = await fetch(`https://api.football-data.org/v4${path}`, {
+    headers: { "X-Auth-Token": token },
+    next: { revalidate: 1800 },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.message || `Football-Data.org returned HTTP ${response.status}`);
   }
+  return data;
+}
+
+function findTeam(teams, targetName) {
+  const wanted = normalize(targetName);
+  if (!wanted) return null;
+  return teams.find((team) => normalize(team.name) === wanted || normalize(team.shortName) === wanted || normalize(team.tla) === wanted)
+    || teams.find((team) => {
+      const candidate = normalize(team.name);
+      return candidate.length > 4 && wanted.length > 4 && (candidate.includes(wanted) || wanted.includes(candidate));
+    })
+    || null;
+}
+
+function convertMatch(match) {
+  const home = match.homeTeam || {};
+  const away = match.awayTeam || {};
+  const score = match.score?.fullTime || {};
+  return {
+    fixture: {
+      id: match.id,
+      date: match.utcDate,
+      timestamp: match.utcDate ? Math.floor(Date.parse(match.utcDate) / 1000) : 0,
+      status: { short: match.status === "FINISHED" ? "FT" : match.status },
+    },
+    teams: {
+      home: { id: home.id, name: home.name || home.shortName },
+      away: { id: away.id, name: away.name || away.shortName },
+    },
+    goals: { home: score.home, away: score.away },
+  };
 }
 
 export async function GET(request) {
-  const apiKey = process.env.API_FOOTBALL_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "Football data is not configured." }, { status: 503 });
+  const token = process.env.FOOTBALL_DATA_TOKEN;
+  if (!token) {
+    return NextResponse.json({ error: "Football-Data.org is not configured on the server." }, { status: 503 });
   }
 
   const params = new URL(request.url).searchParams;
-  const homeRaw = (params.get("home") || "").trim();
-  const awayRaw = (params.get("away") || "").trim();
-  const season = (params.get("season") || "").trim();
-  const home = Number(homeRaw);
-  const away = Number(awayRaw);
+  const homeName = (params.get("homeName") || "").trim();
+  const awayName = (params.get("awayName") || "").trim();
+  const leagueName = (params.get("league") || "").trim();
 
-  if (
-    !homeRaw ||
-    !awayRaw ||
-    !Number.isSafeInteger(home) ||
-    !Number.isSafeInteger(away) ||
-    home <= 0 ||
-    away <= 0 ||
-    home === away
-  ) {
-    console.error("Invalid team-form IDs received:", {
-      homePresent: Boolean(homeRaw),
-      awayPresent: Boolean(awayRaw),
-      homeIsInteger: Number.isSafeInteger(home),
-      awayIsInteger: Number.isSafeInteger(away),
-      sameTeam: home === away,
+  if (!homeName || !awayName || !leagueName) {
+    return NextResponse.json({ error: "Team names and competition are required for recent form." }, { status: 400 });
+  }
+
+  const competition = COMPETITIONS.find((item) =>
+    item.names.some((name) => normalize(leagueName).includes(normalize(name)) || normalize(name).includes(normalize(leagueName)))
+  );
+
+  if (!competition) {
+    return NextResponse.json({
+      homeRecent: [],
+      awayRecent: [],
+      headToHead: [],
+      warnings: [`Recent form is not available from the connected provider for ${leagueName}.`],
+      formNotice: "Current recent form is supplied by Football-Data.org where the competition and both teams are covered. No older-season results are substituted.",
+      source: "Football-Data.org",
     });
-    return NextResponse.json(
-      { error: "The match is missing valid team IDs. Please refresh the fixtures and try again.", code: "INVALID_TEAM_IDS" },
-      { status: 400 }
-    );
   }
 
-  // The connected API-Football Free plan only permits seasons 2022–2024.
-  // Use the newest season available on that plan instead of the current fixture season.
-  const accessibleSeason = "2024";
-  const today = new Date();
-  const h2hFrom = new Date(today);
-  h2hFrom.setUTCFullYear(h2hFrom.getUTCFullYear() - 5);
+  try {
+    const teamsData = await footballData(`/competitions/${competition.code}/teams`, token);
+    const teams = teamsData.teams || [];
+    const homeTeam = findTeam(teams, homeName);
+    const awayTeam = findTeam(teams, awayName);
 
-  const h2hFromDate = dateOnly(h2hFrom);
-  const toDate = dateOnly(today);
-  const base = "https://v3.football.api-sports.io/fixtures";
+    if (!homeTeam || !awayTeam) {
+      return NextResponse.json({
+        homeRecent: [],
+        awayRecent: [],
+        headToHead: [],
+        warnings: [`Could not match both teams to the ${competition.code} team list.`],
+        formNotice: "Current recent form is only shown when both teams can be matched to the provider's competition records. No old data is substituted.",
+        source: "Football-Data.org",
+      });
+    }
 
-  function makeTeamUrl(teamId) {
-    const url = new URL(base);
-    url.searchParams.set("team", teamId);
-    url.searchParams.set("season", accessibleSeason);
-    url.searchParams.set("timezone", "Africa/Lagos");
-    return url;
+    const [homeData, awayData] = await Promise.all([
+      footballData(`/teams/${homeTeam.id}/matches?status=FINISHED&limit=30`, token),
+      footballData(`/teams/${awayTeam.id}/matches?status=FINISHED&limit=30`, token),
+    ]);
+
+    const sortRecent = (items) => (items || [])
+      .filter((match) => match.status === "FINISHED" && match.score?.fullTime?.home !== null && match.score?.fullTime?.away !== null)
+      .sort((a, b) => Date.parse(b.utcDate) - Date.parse(a.utcDate))
+      .slice(0, 5);
+
+    const homeMatches = sortRecent(homeData.matches);
+    const awayMatches = sortRecent(awayData.matches);
+    const awayIds = new Set(awayMatches.map((match) => match.id));
+    const meetings = (homeData.matches || [])
+      .filter((match) => awayIds.has(match.id) && match.status === "FINISHED")
+      .sort((a, b) => Date.parse(b.utcDate) - Date.parse(a.utcDate))
+      .slice(0, 5);
+
+    return NextResponse.json({
+      homeRecent: homeMatches.map(convertMatch),
+      awayRecent: awayMatches.map(convertMatch),
+      headToHead: meetings.map(convertMatch),
+      warnings: [],
+      formNotice: "Recent form uses each team's latest completed matches available from Football-Data.org. Coverage depends on the competition and provider records.",
+      source: "Football-Data.org",
+      teamsMatched: { home: homeTeam.name, away: awayTeam.name },
+    });
+  } catch (error) {
+    console.error("Football-Data.org recent-form request failed:", error);
+    return NextResponse.json({
+      error: "Football-Data.org could not return recent form for this match.",
+      details: [error.message || "Provider request failed."],
+      code: "RECENT_FORM_UNAVAILABLE",
+    }, { status: 502 });
   }
-
-  const h2hUrl = new URL(`${base}/headtohead`);
-  h2hUrl.searchParams.set("h2h", `${home}-${away}`);
-  h2hUrl.searchParams.set("from", h2hFromDate);
-  h2hUrl.searchParams.set("to", toDate);
-  h2hUrl.searchParams.set("timezone", "Africa/Lagos");
-
-  const [homeResult, awayResult, h2hResult] = await Promise.all([
-    fetchFixtures(makeTeamUrl(home), apiKey, "Home recent form"),
-    fetchFixtures(makeTeamUrl(away), apiKey, "Away recent form"),
-    fetchFixtures(h2hUrl, apiKey, "Head-to-head history"),
-  ]);
-
-  const errors = [homeResult.error, awayResult.error, h2hResult.error].filter(Boolean);
-  const hasAnyData = homeResult.fixtures.length || awayResult.fixtures.length || h2hResult.fixtures.length;
-
-  if (!hasAnyData && errors.length) {
-    return NextResponse.json(
-      {
-        error: "API-Football could not provide recent results for this match.",
-        details: errors,
-        code: "RECENT_FORM_UNAVAILABLE",
-      },
-      { status: 502 }
-    );
-  }
-
-  return NextResponse.json({
-    homeRecent: homeResult.fixtures,
-    awayRecent: awayResult.fixtures,
-    headToHead: h2hResult.fixtures,
-    warnings: errors,
-    dateRanges: {
-      teamFormSeason: accessibleSeason,
-      headToHeadFrom: h2hFromDate,
-      to: toDate,
-    },
-    timezone: "Africa/Lagos",
-    formNotice: "Team recent form is limited to the 2024 season because this API-Football Free plan only provides seasons 2022–2024.",
-  });
 }
