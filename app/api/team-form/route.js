@@ -250,11 +250,21 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   if (!key) throw new Error("GOAL_API_KEY is missing from the server environment.");
   const [homeTeam, awayTeam] = await Promise.all([findGoalTeamByName(homeName, key), findGoalTeamByName(awayName, key)]);
   if (!homeTeam || !awayTeam) throw new Error(`GOAL API team search could not match both clubs. Home: ${homeTeam?.name || "not found"}; Away: ${awayTeam?.name || "not found"}.`);
-  const [homeBody, awayBody, h2hBody] = await Promise.all([
+  // Keep each provider request independent: a missing/unsupported H2H record
+  // must not erase valid recent-form results for either team.
+  const [homeRequest, awayRequest, h2hRequest] = await Promise.allSettled([
     goalApi(`/teams/${encodeURIComponent(homeTeam.id)}/results?limit=50`, key),
     goalApi(`/teams/${encodeURIComponent(awayTeam.id)}/results?limit=50`, key),
     goalApi(`/h2h/${encodeURIComponent(homeTeam.id)}/${encodeURIComponent(awayTeam.id)}/direct?limit=50`, key),
   ]);
+  const homeBody = homeRequest.status === "fulfilled" ? homeRequest.value : [];
+  const awayBody = awayRequest.status === "fulfilled" ? awayRequest.value : [];
+  const h2hBody = h2hRequest.status === "fulfilled" ? h2hRequest.value : [];
+  const requestWarnings = [
+    ...(homeRequest.status === "rejected" ? [`GOAL API could not retrieve results for ${homeTeam.name}: ${homeRequest.reason?.message || "request failed"}`] : []),
+    ...(awayRequest.status === "rejected" ? [`GOAL API could not retrieve results for ${awayTeam.name}: ${awayRequest.reason?.message || "request failed"}`] : []),
+    ...(h2hRequest.status === "rejected" ? [`GOAL API head-to-head is unavailable: ${h2hRequest.reason?.message || "request failed"}`] : []),
+  ];
   const asArray = (value) => Array.isArray(value) ? value : value?.matches || value?.results || value?.items || [];
   const completed = (items) => asArray(items)
     .filter((match) => ["FINISHED", "FT"].includes(String(match.matchStatus || match.match_status || "").toUpperCase())
@@ -271,8 +281,11 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   const homeRecent = attachFixtureTeamId(completed(homeBody), homeTeam, homeApiId);
   const awayRecent = attachFixtureTeamId(completed(awayBody), awayTeam, awayApiId);
   const headToHead = completed(h2hBody);
+  if (!homeRecent.length && !awayRecent.length && !headToHead.length) {
+    throw new Error(requestWarnings.join(" ") || "GOAL API returned no completed results for either team.");
+  }
   return { homeRecent, awayRecent, headToHead,
-    warnings: [...(!homeRecent.length ? [`GOAL API has no completed recent results for ${homeTeam.name}.`] : []), ...(!awayRecent.length ? [`GOAL API has no completed recent results for ${awayTeam.name}.`] : [])],
+    warnings: [...requestWarnings, ...(!homeRecent.length ? [`GOAL API has no completed recent results for ${homeTeam.name}.`] : []), ...(!awayRecent.length ? [`GOAL API has no completed recent results for ${awayTeam.name}.`] : [])],
     formNotice: "Recent form uses the latest completed results supplied by GOAL API. Head-to-head meetings are listed separately.",
     source: "GOAL API", teamsMatched: { home: homeTeam.name, away: awayTeam.name } };
 }
