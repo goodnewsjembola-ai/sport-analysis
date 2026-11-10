@@ -247,9 +247,6 @@ export default function Home() {
   const [selectedDate, setSelectedDate] = useState(() => getLagosToday());
   const [selectedLeague, setSelectedLeague] = useState("All leagues");
   const [openAnalysis, setOpenAnalysis] = useState(null);
-  const [analysisByFixture, setAnalysisByFixture] = useState({});
-  const [analysisLoading, setAnalysisLoading] = useState(null);
-  const [analysisErrors, setAnalysisErrors] = useState({});
   const [formByFixture, setFormByFixture] = useState({});
   const [formLoading, setFormLoading] = useState(null);
   const [formErrors, setFormErrors] = useState({});
@@ -292,78 +289,39 @@ export default function Home() {
 
   async function toggleAnalysis(fixtureId, force = false, homeId = null, awayId = null, season = null, homeName = "", awayName = "", leagueName = "") {
     if (!fixtureId) return;
-
     if (openAnalysis === fixtureId && !force) {
       setOpenAnalysis(null);
       return;
     }
-
     setOpenAnalysis(fixtureId);
-
-    const needsPrediction = force || !analysisByFixture[fixtureId];
-    const needsForm = Boolean(homeId && awayId && (force || !formByFixture[fixtureId]));
-    if (!needsPrediction && !needsForm) return;
-
-    const requests = [];
-
-    // Prediction and team-history providers are independent. A prediction
-    // outage must never prevent the last-five and H2H request from running.
-    if (needsPrediction) {
-      setAnalysisLoading(fixtureId);
-      setAnalysisErrors((current) => ({ ...current, [fixtureId]: "" }));
-      requests.push((async () => {
-        try {
-          const response = await fetch(`/api/predictions?fixture=${encodeURIComponent(fixtureId)}`);
-          const data = await response.json();
-          if (!response.ok) {
-            const detail = data.details ? ` Provider detail: ${data.details}` : "";
-            throw new Error((data.error || "Match analysis could not be loaded.") + detail);
-          }
-          const result = data.predictions?.[0] || null;
-          if (!result) throw new Error("The prediction provider has no prediction for this fixture. Team history can still be viewed below.");
-          setAnalysisByFixture((current) => ({ ...current, [fixtureId]: result }));
-        } catch (error) {
-          setAnalysisErrors((current) => ({
-            ...current,
-            [fixtureId]: error.message || "Unable to load match analysis.",
-          }));
-        } finally {
-          setAnalysisLoading((current) => current === fixtureId ? null : current);
-        }
-      })());
+    if (!homeId || !awayId) {
+      setFormErrors((current) => ({ ...current, [fixtureId]: "Verified team-history data is not available for this fixture yet." }));
+      return;
     }
+    if (!force && formByFixture[fixtureId]) return;
 
-    if (needsForm) {
-      setFormLoading(fixtureId);
-      setFormErrors((current) => ({ ...current, [fixtureId]: "" }));
-      requests.push((async () => {
-        try {
-          const formParams = new URLSearchParams({
-            homeName: String(homeName || ""),
-            awayName: String(awayName || ""),
-            league: String(leagueName || ""),
-            homeId: String(homeId || ""),
-            awayId: String(awayId || ""),
-          });
-          const formResponse = await fetch(`/api/team-form?${formParams.toString()}`);
-          const formData = await formResponse.json();
-          if (!formResponse.ok) {
-            const details = Array.isArray(formData.details) ? formData.details.join(" · ") : "";
-            throw new Error([formData.error || "Recent form could not be loaded.", details].filter(Boolean).join(" — "));
-          }
-          setFormByFixture((current) => ({ ...current, [fixtureId]: formData }));
-        } catch (formError) {
-          setFormErrors((current) => ({
-            ...current,
-            [fixtureId]: formError.message || "Unable to load recent form.",
-          }));
-        } finally {
-          setFormLoading((current) => current === fixtureId ? null : current);
-        }
-      })());
+    setFormLoading(fixtureId);
+    setFormErrors((current) => ({ ...current, [fixtureId]: "" }));
+    try {
+      const params = new URLSearchParams({
+        homeName: String(homeName || ""),
+        awayName: String(awayName || ""),
+        league: String(leagueName || ""),
+        homeId: String(homeId || ""),
+        awayId: String(awayId || ""),
+      });
+      const response = await fetch("/api/team-form?" + params.toString());
+      const data = await response.json();
+      if (!response.ok) {
+        const details = Array.isArray(data.details) ? data.details.join(" · ") : "";
+        throw new Error([data.error || "Recent form could not be loaded.", details].filter(Boolean).join(" — "));
+      }
+      setFormByFixture((current) => ({ ...current, [fixtureId]: data }));
+    } catch (error) {
+      setFormErrors((current) => ({ ...current, [fixtureId]: error.message || "Unable to load verified team history." }));
+    } finally {
+      setFormLoading((current) => current === fixtureId ? null : current);
     }
-
-    await Promise.all(requests);
   }
 
   const availableLeagues = useMemo(() => {
@@ -535,16 +493,11 @@ export default function Home() {
                 </button>
                 {openAnalysis === fixtureId && (
                   <div className="prediction-panel">
-                    {analysisLoading === fixtureId && <p className="prediction-message">Preparing match analysis...</p>}
-                    {analysisErrors[fixtureId] && !buildFormModel(formByFixture[fixtureId], fixture.teams?.home?.name || "Home", fixture.teams?.away?.name || "Away") && (
+                    {formLoading === fixtureId && <p className="prediction-message">Preparing G SPORT prediction from verified match data...</p>}
+                    {formErrors[fixtureId] && (
                       <div className="prediction-message prediction-error">
-                        <p>{analysisErrors[fixtureId]}</p>
+                        <p>{formErrors[fixtureId]}</p>
                         <button onClick={() => {
-                          setAnalysisByFixture((current) => {
-                            const next = { ...current };
-                            delete next[fixtureId];
-                            return next;
-                          });
                           setFormByFixture((current) => {
                             const next = { ...current };
                             delete next[fixtureId];
@@ -567,10 +520,10 @@ export default function Home() {
                         <div className="prediction-content">
                           <div className="prediction-heading">
                             <div>
-                              <span className="prediction-kicker">{item.model ? "G SPORT FORM MODEL" : "PROVIDER MATCH PREDICTION"}</span>
+                              <span className="prediction-kicker">"G SPORT PREDICTION ENGINE"</span>
                               <h3>Match intelligence</h3>
                             </div>
-                            <span className="provider-tag">{item.model ? "FORM-BASED ESTIMATE" : "API-FOOTBALL"}</span>
+                            <span className="provider-tag">{item.model ? "INTERNAL MODEL" : "INSUFFICIENT DATA"}</span>
                           </div>
                           <div className="prediction-stats">
                             <div className="prediction-stat">
@@ -608,7 +561,7 @@ export default function Home() {
                                 </div>
                               );
                             })}
-                            <p>{item.model ? "Estimated probabilities calculated from verified recent team results, with available head-to-head meetings given a smaller weighting. These are statistical estimates, not guaranteed outcomes." : "Percentages are the provider's estimated probabilities for the three match outcomes."}</p>
+                            <p>{item.model ? "Probabilities are calculated by G SPORT from verified recent results using a statistical goal model, with head-to-head meetings given a smaller weighting. Estimates are not guaranteed outcomes." : "G SPORT needs at least two verified completed matches for each team before publishing a prediction. No probabilities are invented."}</p>
                           </section>
                           {(() => {
                             const confidence = getConfidence(percent);
@@ -631,7 +584,7 @@ export default function Home() {
                           })()}
                           <div className="prediction-details">
                             <div className="prediction-detail-card"><small>Predicted winner</small><strong>{winner.name || "No clear favourite"}</strong>{winner.comment && <span>{winner.comment}</span>}</div>
-                            <div className="prediction-detail-card"><small>Goals market</small><strong>{goalsMarket || "Not available"}</strong><span>Provider estimate</span></div>
+                            <div className="prediction-detail-card"><small>Goals market</small><strong>{goalsMarket || "Not available"}</strong><span>G SPORT model estimate</span></div>
                           </div>
                           <section className="team-goals-section" aria-label="Team goals estimates">
                             <div className="team-goals-heading">
