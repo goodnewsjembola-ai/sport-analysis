@@ -65,21 +65,28 @@ async function getApiFootballForm(homeId, awayId) {
     throw new Error("The fixture did not include valid API-Football team IDs for recent-form lookup.");
   }
 
+  // Request the team's latest fixtures without the status filter. Some
+  // provider responses can be empty when last= and status= are combined.
+  // Filter completed matches locally so postponed/live fixtures are excluded.
   const [homeData, awayData, h2hData] = await Promise.all([
-    apiFootball(`/fixtures?team=${homeId}&last=10&status=FT`, key),
-    apiFootball(`/fixtures?team=${awayId}&last=10&status=FT`, key),
-    apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}&last=10`, key),
+    apiFootball(`/fixtures?team=${homeId}&last=20`, key),
+    apiFootball(`/fixtures?team=${awayId}&last=20`, key),
+    apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}&last=20`, key),
   ]);
 
   const homeRecent = sortApiFootballRecent(homeData);
   const awayRecent = sortApiFootballRecent(awayData);
   const headToHead = sortApiFootballRecent(h2hData);
+  const warnings = [];
+  if (!homeRecent.length) warnings.push(`API-Football returned no completed recent fixtures for the home team (ID ${homeId}).`);
+  if (!awayRecent.length) warnings.push(`API-Football returned no completed recent fixtures for the away team (ID ${awayId}).`);
+  if (!headToHead.length) warnings.push("API-Football returned no completed head-to-head fixtures for these teams.");
 
   return {
     homeRecent,
     awayRecent,
     headToHead,
-    warnings: [],
+    warnings,
     formNotice: "Recent form uses each team's latest completed matches across competitions from API-Football. Head-to-head meetings are listed separately. Availability depends on the competition and API plan.",
     source: "API-Football",
   };
