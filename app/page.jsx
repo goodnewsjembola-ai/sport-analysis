@@ -53,6 +53,19 @@ function getScore(fixture) {
   return `${home} - ${away}`;
 }
 
+function formatProviderLine(value) {
+  if (value === null || value === undefined || value === "") return null;
+
+  const text = String(value).trim();
+  const match = text.match(/^([+-])\\s*(\\d+(?:\\.\\d+)?)$/);
+
+  if (match) {
+    return `${match[1] === "+" ? "Over" : "Under"} ${match[2]}`;
+  }
+
+  return text;
+}
+
 export default function Home() {
   const [activeMarket, setActiveMarket] = useState("All markets");
   const [search, setSearch] = useState("");
@@ -280,6 +293,9 @@ export default function Home() {
                       const prediction = item.predictions || {};
                       const percent = prediction.percent || {};
                       const goals = prediction.goals || {};
+                      const homeGoals = formatProviderLine(goals.home);
+                      const awayGoals = formatProviderLine(goals.away);
+                      const goalsMarket = formatProviderLine(prediction.under_over);
                       const winner = prediction.winner || {};
                       return (
                         <div className="prediction-content">
@@ -306,8 +322,12 @@ export default function Home() {
                           </div>
                           <div className="prediction-details">
                             <div><small>Predicted winner</small><strong>{winner.name || "No clear favourite"}</strong>{winner.comment && <span>{winner.comment}</span>}</div>
-                            <div><small>Goals estimate</small><strong>{goals.home ?? "—"} - {goals.away ?? "—"}</strong><span>Home - Away</span></div>
-                            <div><small>Goals market</small><strong>{prediction.under_over || "Not available"}</strong><span>Provider estimate</span></div>
+                            <div>
+                              <small>Team goals estimate</small>
+                              <strong>{homeGoals || awayGoals ? "Available" : "Not available"}</strong>
+                              <span>{homeGoals ? `Home: ${homeGoals}` : "Home: Not available"} · {awayGoals ? `Away: ${awayGoals}` : "Away: Not available"}</span>
+                            </div>
+                            <div><small>Goals market</small><strong>{goalsMarket || "Not available"}</strong><span>Provider estimate</span></div>
                           </div>
                           {prediction.advice && <p className="prediction-advice"><b>Provider advice:</b> {prediction.advice}</p>}
                           <p className="prediction-disclaimer">These are third-party statistical estimates, not guaranteed results. Availability and detail depend on the provider's data for this match.</p>
