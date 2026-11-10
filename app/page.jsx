@@ -567,17 +567,6 @@ export default function Home() {
                             </div>
                             {formLoading === fixtureId && <p className="form-message">Loading recent results and previous meetings...</p>}
                             {formErrors[fixtureId] && <div className="form-message form-error"><p>{formErrors[fixtureId]}</p>{formErrors[fixtureId].details?.map((detail, index) => <small key={index}>{detail}</small>)}</div>}
-                            {formByFixture[fixtureId]?.formNotice && (
-                              <p className="form-message">{formByFixture[fixtureId].formNotice}</p>
-                            )}
-                            {formByFixture[fixtureId]?.warnings?.length > 0 && (
-                              <div className="form-message">
-                                <p>Some recent-form information could not be retrieved. Provider details:</p>
-                                {formByFixture[fixtureId].warnings.map((warning, index) => (
-                                  <small key={index} style={{ display: "block", marginTop: "6px" }}>{warning}</small>
-                                ))}
-                              </div>
-                            )}
                             {formByFixture[fixtureId] && (() => {
                               const form = formByFixture[fixtureId];
                               const homeResults = (form.homeRecent || []).map((match) => getTeamResult(match, homeTeamId)).filter(Boolean);
@@ -611,7 +600,7 @@ export default function Home() {
                                       <div className="h2h-row" key={`${meeting.date}-${index}`}>
                                         <span>{meeting.date}</span><strong>{meeting.home} <em>{meeting.score}</em> {meeting.away}</strong><small>{meeting.result}</small>
                                       </div>
-                                    )) : <p className="form-message">No previous meetings found in the provider's data.</p>}
+                                    )) : <p className="form-message">No verified previous meetings are available for this fixture yet.</p>}
                                   </div>
                                 </>
                               );
