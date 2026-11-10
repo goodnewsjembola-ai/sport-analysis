@@ -483,10 +483,13 @@ function mergeRecentMatches(primary, fallback) {
       const fixture = match.fixture || {};
       const home = normalize(match.teams?.home?.name);
       const away = normalize(match.teams?.away?.name);
-      const identity = fixture.id
-        ? `id:${fixture.id}`
-        : `match:${fixture.timestamp || fixture.date || ""}:${home}:${away}:${match.goals?.home}-${match.goals?.away}`;
-      if (seen.has(identity)) return false;
+      // Provider fixture IDs are not globally unique. Deduplicate by the
+      // actual meeting details so the same match from two feeds appears once.
+      const date = fixture.timestamp
+        ? new Date(fixture.timestamp * 1000).toISOString().slice(0, 10)
+        : String(fixture.date || "").slice(0, 10);
+      const identity = `match:${date}:${home}:${away}:${match.goals?.home}-${match.goals?.away}`;
+      if (!home || !away || seen.has(identity)) return false;
       seen.add(identity);
       return true;
     })
