@@ -165,3 +165,65 @@ footer{padding:35px 9%;border-top:1px solid var(--line);display:flex;align-items
 .league-group-heading h3{margin:0;color:var(--gold-light);font-family:'Playfair Display',serif;font-size:19px;font-weight:500}
 .league-group-heading span{color:#899187;font-size:8px;letter-spacing:1.3px}
 @media(max-width:620px){.fixture-controls{display:grid;grid-template-columns:1fr 1fr;gap:9px}.fixture-control{min-width:0}.fixture-control>span{font-size:7px}.fixture-control input,.fixture-control select{font-size:9px;padding:9px 7px}.league-group-heading h3{font-size:17px}}
+
+/* Ensure fixture date and league controls remain visible and usable */
+.fixture-controls{
+  display:grid !important;
+  grid-template-columns:repeat(2,minmax(190px,240px));
+  align-items:end;
+  gap:14px;
+  width:100%;
+  min-height:76px;
+  margin:0 0 22px;
+  padding:16px;
+  background:#111713;
+  border:1px solid rgba(229,202,140,.24);
+  position:relative;
+  z-index:2;
+}
+.fixture-control{
+  display:grid !important;
+  gap:8px;
+  min-width:0;
+  width:100%;
+  color:var(--gold-light);
+}
+.fixture-control>span{
+  display:block;
+  color:var(--gold-light);
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:1.4px;
+}
+.fixture-control input[type="date"],
+.fixture-control select{
+  display:block !important;
+  visibility:visible !important;
+  opacity:1 !important;
+  width:100%;
+  height:44px;
+  min-height:44px;
+  padding:10px 12px;
+  border:1px solid rgba(229,202,140,.45);
+  border-radius:3px;
+  background:#090b0a;
+  color:#f5f2e9;
+  color-scheme:dark;
+  font-size:13px;
+  cursor:pointer;
+}
+.fixture-control select option{background:#111713;color:#f5f2e9}
+.fixture-control input[type="date"]::-webkit-calendar-picker-indicator{
+  opacity:1;
+  cursor:pointer;
+  filter:invert(1);
+}
+.fixture-control input:focus,.fixture-control select:focus{
+  outline:2px solid var(--gold);
+  outline-offset:2px;
+}
+@media(max-width:620px){
+  .fixture-controls{grid-template-columns:1fr 1fr;padding:12px;gap:9px}
+  .fixture-control>span{font-size:8px}
+  .fixture-control input[type="date"],.fixture-control select{font-size:11px;padding:8px 6px}
+}
