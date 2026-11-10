@@ -57,7 +57,7 @@ function formatProviderLine(value) {
   if (value === null || value === undefined || value === "") return null;
 
   const text = String(value).trim();
-  const match = text.match(/^([+-])\\s*(\\d+(?:\\.\\d+)?)$/);
+  const match = text.match(/^([+-])\s*(\d+(?:\.\d+)?)$/);
 
   if (match) {
     return `${match[1] === "+" ? "Over" : "Under"} ${match[2]}`;
