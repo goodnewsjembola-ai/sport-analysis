@@ -973,7 +973,7 @@ export async function GET(request) {
     ...(awayRecent.length < 2 ? ["Fewer than two verified recent matches are available for " + awayName + "."] : []),
   ];
   const sources = [];
-  if (goalData.homeRecent?.length || goalData.awayRecent?.length || goalData.headToHead?.length) sources.push("GOAL API");\n  if (leagueHistory.homeRecent?.length || leagueHistory.awayRecent?.length || leagueHistory.headToHead?.length) sources.push("GOAL API league results");
+  if (goalData.homeRecent?.length || goalData.awayRecent?.length || goalData.headToHead?.length) sources.push("GOAL API");\n  if (leagueHistory.homeRecent?.length || leagueHistory.awayRecent?.length || leagueHistory.headToHead?.length) sources.push("GOAL API league results");\n  if (leagueHistory.homeRecent?.length || leagueHistory.awayRecent?.length || leagueHistory.headToHead?.length) sources.push("GOAL API league results");
   if (dataFallback.homeRecent?.length || dataFallback.awayRecent?.length || dataFallback.headToHead?.length) sources.push("Football-Data.org");
   if (espnFallback.homeRecent?.length || espnFallback.awayRecent?.length || espnFallback.headToHead?.length) sources.push("ESPN");
   if (ninjasFallback.homeRecent?.length || ninjasFallback.awayRecent?.length || ninjasFallback.headToHead?.length) sources.push("API Ninjas");
