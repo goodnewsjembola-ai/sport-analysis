@@ -94,8 +94,9 @@ async function getApiFootballForm(homeName, awayName) {
   const recentStart = new Date(today);
   recentStart.setUTCDate(recentStart.getUTCDate() - 365);
   const from = recentStart.toISOString().slice(0, 10);
-  const currentSeason = today.getUTCFullYear();
-  const seasons = [currentSeason, currentSeason - 1];
+  // The connected API-Football free plan only exposes seasons 2022–2024.
+  // Do not request newer seasons: those requests fail and can make both teams look empty.
+  const seasons = [2024, 2023, 2022];
 
   // Fetch each team's form independently so one provider failure does not
   // discard the other team's available results or the H2H response.
@@ -253,20 +254,43 @@ async function getNpFlForm(homeName, awayName) {
   };
 }
 async function findGoalTeamByName(name, key) {
-  // Use the documented, paginated GOAL team directory. An undocumented
-  // search query can silently return only the first page and miss clubs.
+  // Read the full response envelope so pagination.hasMore is not lost.
+  // goalApi() unwraps data for ordinary endpoints, which previously caused
+  // this directory scan to stop after its first page and miss major clubs.
   const limit = 100;
-  for (let page = 0; page < 20; page += 1) {
-    const body = await goalApi(`/teams?limit=${limit}&offset=${page * limit}`, key);
+  let offset = 0;
+  for (let page = 0; page < 50; page += 1) {
+    const response = await fetch(
+      `https://api.goal-api.com/v1/teams?limit=${limit}&offset=${offset}`,
+      {
+        headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+        next: { revalidate: 1800 },
+      }
+    );
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body?.success === false) {
+      throw new Error(body?.error?.message || body?.message || `GOAL API team directory returned HTTP ${response.status}`);
+    }
     const data = body?.data ?? body;
-    const teams = Array.isArray(data) ? data
-      : Array.isArray(data?.teams) ? data.teams
-      : Array.isArray(data?.items) ? data.items
+    const nested = data?.data ?? data;
+    const teams = Array.isArray(nested) ? nested
+      : Array.isArray(nested?.teams) ? nested.teams
+      : Array.isArray(nested?.items) ? nested.items
+      : Array.isArray(nested?.results) ? nested.results
       : [];
     const match = findGoalTeam(teams, name);
     if (match) return match;
-    const pagination = body?.pagination || data?.pagination;
-    if (pagination?.hasMore === false || teams.length < limit) break;
+
+    const pagination = body?.pagination || data?.pagination || nested?.pagination;
+    if (pagination && pagination.hasMore === false) break;
+    if (pagination && pagination.hasMore === true) {
+      const nextOffset = Number(pagination.offset ?? offset) + Number(pagination.limit || teams.length || limit);
+      offset = nextOffset > offset ? nextOffset : offset + (teams.length || limit);
+    } else {
+      if (teams.length < limit) break;
+      offset += teams.length;
+    }
+    if (!teams.length) break;
   }
   return null;
 }
