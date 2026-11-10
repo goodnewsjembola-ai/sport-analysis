@@ -236,6 +236,8 @@ export default function Home() {
             homeName: String(homeName || ""),
             awayName: String(awayName || ""),
             league: String(leagueName || ""),
+            homeId: String(homeId || ""),
+            awayId: String(awayId || ""),
           });
           const formResponse = await fetch(`/api/team-form?${formParams.toString()}`);
           const formData = await formResponse.json();
