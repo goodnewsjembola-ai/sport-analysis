@@ -222,6 +222,54 @@ async function getNpFlForm(homeName, awayName) {
     teamsMatched: { home: homeTeam.name, away: awayTeam.name },
   };
 }
+async function findGoalTeamByName(name, key) {
+  const query = new URLSearchParams({ search: name, limit: "50" });
+  const body = await goalApi(`/teams?${query.toString()}`, key);
+  const teams = Array.isArray(body) ? body : body?.teams || body?.items || [];
+  return findGoalTeam(teams, name);
+}
+
+function goalFixtureToStandard(match) {
+  const homeName = match.homeTeamName || match.homeTeam?.name || match.match_hometeam_name;
+  const awayName = match.awayTeamName || match.awayTeam?.name || match.match_awayteam_name;
+  const homeScore = match.homeTeamFtScore ?? match.homeTeamScore ?? match.match_hometeam_score;
+  const awayScore = match.awayTeamFtScore ?? match.awayTeamScore ?? match.match_awayteam_score;
+  const kickoff = match.kickoffUtc || match.matchDate || match.match_date;
+  const status = String(match.matchStatus || match.match_status || "").toUpperCase();
+  const dateText = kickoff ? String(kickoff) : "";
+  const timestamp = dateText ? Math.floor(Date.parse(dateText.includes("T") ? dateText : `${dateText}T${match.matchTime || match.match_time || "00:00"}:00Z`) / 1000) : 0;
+  return {
+    fixture: { id: match.id || match.apiId || match.match_id, date: kickoff, timestamp, status: { short: ["FINISHED", "FT"].includes(status) ? "FT" : status } },
+    teams: { home: { id: match.homeTeamId || match.homeTeam?.id || match.match_hometeam_id, name: homeName }, away: { id: match.awayTeamId || match.awayTeam?.id || match.match_awayteam_id, name: awayName } },
+    goals: { home: Number(homeScore), away: Number(awayScore) },
+  };
+}
+
+async function getGoalApiForm(homeName, awayName) {
+  const key = process.env.GOAL_API_KEY;
+  if (!key) throw new Error("GOAL_API_KEY is missing from the server environment.");
+  const [homeTeam, awayTeam] = await Promise.all([findGoalTeamByName(homeName, key), findGoalTeamByName(awayName, key)]);
+  if (!homeTeam || !awayTeam) throw new Error(`GOAL API team search could not match both clubs. Home: ${homeTeam?.name || "not found"}; Away: ${awayTeam?.name || "not found"}.`);
+  const [homeBody, awayBody, h2hBody] = await Promise.all([
+    goalApi(`/teams/${encodeURIComponent(homeTeam.id)}/results?limit=50`, key),
+    goalApi(`/teams/${encodeURIComponent(awayTeam.id)}/results?limit=50`, key),
+    goalApi(`/h2h/${encodeURIComponent(homeTeam.id)}/${encodeURIComponent(awayTeam.id)}/direct?limit=50`, key),
+  ]);
+  const asArray = (value) => Array.isArray(value) ? value : value?.matches || value?.results || value?.items || [];
+  const completed = (items) => asArray(items)
+    .filter((match) => ["FINISHED", "FT"].includes(String(match.matchStatus || match.match_status || "").toUpperCase())
+      && (match.homeTeamFtScore ?? match.homeTeamScore ?? match.match_hometeam_score) !== null
+      && (match.awayTeamFtScore ?? match.awayTeamScore ?? match.match_awayteam_score) !== null)
+    .map(goalFixtureToStandard)
+    .filter((match) => Number.isFinite(match.goals.home) && Number.isFinite(match.goals.away))
+    .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp).slice(0, 5);
+  const homeRecent = completed(homeBody), awayRecent = completed(awayBody), headToHead = completed(h2hBody);
+  return { homeRecent, awayRecent, headToHead,
+    warnings: [...(!homeRecent.length ? [`GOAL API has no completed recent results for ${homeTeam.name}.`] : []), ...(!awayRecent.length ? [`GOAL API has no completed recent results for ${awayTeam.name}.`] : [])],
+    formNotice: "Recent form uses the latest completed results supplied by GOAL API. Head-to-head meetings are listed separately.",
+    source: "GOAL API", teamsMatched: { home: homeTeam.name, away: awayTeam.name } };
+}
+
 async function footballData(path, token) {
   const response = await fetch(`https://api.football-data.org/v4${path}`, {
     headers: { "X-Auth-Token": token },
@@ -291,20 +339,20 @@ export async function GET(request) {
   }
 
 
-  // Use API-Football for every competition except the NPFL, which has its
-  // dedicated GOAL API integration above. This keeps cups and leagues on the
-  // same team-ID based recent-form lookup, including Copa del Rey.
+  // GOAL API is primary for non-NPFL recent form; API-Football remains the fallback.
   try {
-    const data = await getApiFootballForm(homeId, awayId);
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error(`API-Football recent-form request failed for ${leagueName}:`, error);
-    return NextResponse.json({
-      homeRecent: [], awayRecent: [], headToHead: [],
-      warnings: [error.message || "API-Football could not return recent form."],
-      formNotice: `Recent form for ${leagueName} could not be retrieved. No older-season or unrelated results are substituted.`,
-      source: "API-Football",
-    });
+    const goalData = await getGoalApiForm(homeName, awayName);
+    if (goalData.homeRecent.length || goalData.awayRecent.length || goalData.headToHead.length) return NextResponse.json(goalData);
+    throw new Error(goalData.warnings.join(" ") || "GOAL API returned no completed results.");
+  } catch (goalError) {
+    console.error(`GOAL API recent-form request failed for ${leagueName}:`, goalError);
+    try {
+      const fallback = await getApiFootballForm(homeId, awayId);
+      return NextResponse.json({ ...fallback, warnings: [`GOAL API fallback: ${goalError.message}`, ...(fallback.warnings || [])], formNotice: `Recent form for ${leagueName} is supplied by API-Football because GOAL API could not return matching results.` });
+    } catch (apiError) {
+      console.error(`Both recent-form providers failed for ${leagueName}:`, apiError);
+      return NextResponse.json({ homeRecent: [], awayRecent: [], headToHead: [], warnings: [`GOAL API: ${goalError.message || "No recent results returned."}`, `API-Football: ${apiError.message || "No recent results returned."}`], formNotice: `Recent form for ${leagueName} could not be retrieved. No older-season or unrelated results are substituted.`, source: "GOAL API + API-Football" });
+    }
   }
 
 
