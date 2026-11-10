@@ -319,12 +319,19 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
     ...(awayRequest.status === "rejected" ? [`GOAL API could not retrieve results for ${awayTeam.name}: ${awayRequest.reason?.message || "request failed"}`] : []),
     ...(h2hRequest.status === "rejected" && !String(h2hRequest.reason?.message || "").includes("HTTP 404") ? [`GOAL API head-to-head is unavailable: ${h2hRequest.reason?.message || "request failed"}`] : []),
   ];
-  const asArray = (value) => Array.isArray(value) ? value : value?.matches || value?.results || value?.items || [];
+  const asArray = (value) => Array.isArray(value) ? value
+    : value?.matches || value?.results || value?.items || value?.fixtures || value?.data || [];
   const recentCutoff = Math.floor((Date.now() - 365 * 86400000) / 1000);
   const completed = (items) => asArray(items)
-    .filter((match) => ["FINISHED", "FT"].includes(String(match.matchStatus || match.match_status || "").toUpperCase())
-      && (match.homeTeamFtScore ?? match.homeTeamScore ?? match.match_hometeam_score) !== null
-      && (match.awayTeamFtScore ?? match.awayTeamScore ?? match.match_awayteam_score) !== null)
+    .filter((match) => {
+      const rawStatus = match.matchStatus || match.match_status || match.status?.short || match.status || match.fixture?.status?.short || "";
+      const status = String(typeof rawStatus === "object" ? rawStatus.name || rawStatus.type || "" : rawStatus).toUpperCase();
+      const homeScore = match.homeTeamFtScore ?? match.homeTeamScore ?? match.match_hometeam_score ?? match.homeScore ?? match.goals?.home ?? match.score?.fullTime?.home;
+      const awayScore = match.awayTeamFtScore ?? match.awayTeamScore ?? match.match_awayteam_score ?? match.awayScore ?? match.goals?.away ?? match.score?.fullTime?.away;
+      return ["FINISHED", "FT", "FULL_TIME", "STATUS_FINAL"].includes(status)
+        && homeScore !== null && homeScore !== undefined
+        && awayScore !== null && awayScore !== undefined;
+    })
     .map(goalFixtureToStandard)
     .filter((match) => Number.isFinite(match.goals.home) && Number.isFinite(match.goals.away)
       && match.fixture.timestamp >= recentCutoff)
