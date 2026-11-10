@@ -81,6 +81,20 @@ function explainProviderLine(value) {
     : `${minimumWholeGoals} or more goals`;
 }
 
+function getConfidence(percent) {
+  const values = [percent.home, percent.draw, percent.away].map((value) => {
+    if (value === null || value === undefined || value === "") return NaN;
+    return Number.parseFloat(String(value).replace("%", "").trim());
+  });
+
+  if (values.some((value) => !Number.isFinite(value))) return null;
+
+  const strongest = Math.max(...values);
+  const level = strongest >= 70 ? "High" : strongest >= 55 ? "Medium" : "Low";
+
+  return { level, strongest };
+}
+
 export default function Home() {
   const [activeMarket, setActiveMarket] = useState("All markets");
   const [search, setSearch] = useState("");
@@ -335,6 +349,25 @@ export default function Home() {
                               <strong>{percent.away || "—"}</strong>
                             </div>
                           </div>
+                          {(() => {
+                            const confidence = getConfidence(percent);
+                            return (
+                              <section className={`confidence-card ${confidence ? `confidence-${confidence.level.toLowerCase()}` : "confidence-unavailable"}`} aria-label="Match probability strength">
+                                <div className="confidence-topline">
+                                  <div><small>G SPORT INDICATOR</small><strong>Match confidence</strong></div>
+                                  <span className="confidence-level">{confidence ? confidence.level.toUpperCase() : "UNAVAILABLE"}</span>
+                                </div>
+                                {confidence && (
+                                  <div className="confidence-meter" role="img" aria-label={`Strongest outcome probability ${confidence.strongest}%`}>
+                                    <span style={{ width: `${Math.max(0, Math.min(100, confidence.strongest))}%` }} />
+                                  </div>
+                                )}
+                                <p>{confidence
+                                  ? `Strongest outcome probability: ${confidence.strongest}%. This is a simple G Sport rating based on the provider's 1X2 percentages.`
+                                  : "The provider has not supplied enough 1X2 probability data to calculate this indicator."}</p>
+                              </section>
+                            );
+                          })()}
                           <div className="prediction-details">
                             <div className="prediction-detail-card"><small>Predicted winner</small><strong>{winner.name || "No clear favourite"}</strong>{winner.comment && <span>{winner.comment}</span>}</div>
                             <div className="prediction-detail-card"><small>Goals market</small><strong>{goalsMarket || "Not available"}</strong><span>Provider estimate</span></div>
