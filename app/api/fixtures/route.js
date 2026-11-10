@@ -227,7 +227,8 @@ export async function GET(request) {
     );
   }
 
-  // Fixtures are supplied by GOAL API, Football-Data.org and API Ninjas.\n\n  // A provider error must not blank the entire match centre when another
+  // Fixtures are supplied by GOAL API, Football-Data.org and API Ninjas.
+  // A provider outage must not blank the entire match centre when another
   // configured source can supply the selected day's fixtures.
   const [goalResult, footballDataResult] = await Promise.allSettled([
     getGoalFixtures(date, process.env.GOAL_API_KEY),
@@ -280,7 +281,6 @@ export async function GET(request) {
   }
 
   const diagnostics = [
-    `API-Football: ${apiFootballError}`,
     `GOAL API: ${goalResult.status === "rejected" ? goalResult.reason?.message || "request failed" : "No fixtures returned for this date"}`,
     `Football-Data.org: ${footballDataResult.status === "rejected" ? footballDataResult.reason?.message || "request failed" : "No Premier League fixtures returned for this date"}`,
     `API Ninjas: ${apiNinjasError}`,
