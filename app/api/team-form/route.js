@@ -62,7 +62,7 @@ function sortApiFootballRecent(items) {
     .filter((match) => match.fixture?.status?.short === "FT"
       && Number.isFinite(Number(match.goals?.home)) && Number.isFinite(Number(match.goals?.away)))
     .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
-    .slice(0, 5);
+    .slice(0, 3);
 }
 
 function sortApiFootballH2H(items) {
@@ -261,8 +261,8 @@ async function getNpFlForm(homeName, awayName) {
       && match.awayTeamFtScore !== null && match.awayTeamFtScore !== undefined)
     .sort((a, b) => Date.parse(b.kickoffUtc || b.matchDate) - Date.parse(a.kickoffUtc || a.matchDate));
 
-  const homeMatches = completed(homeBody).slice(0, 5);
-  const awayMatches = completed(awayBody).slice(0, 5);
+  const homeMatches = completed(homeBody).slice(0, 3);
+  const awayMatches = completed(awayBody).slice(0, 3);
   const meetings = asArray(h2hBody)
     .filter((match) => String(match.match_status || "").toLowerCase() === "finished"
       && match.match_hometeam_score !== null && match.match_hometeam_score !== undefined
@@ -494,7 +494,7 @@ function mergeRecentMatches(primary, fallback) {
       return true;
     })
     .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
-    .slice(0, 5);
+    .slice(0, 3);
 }
 
 function mergeH2HMatches(...groups) {
@@ -607,7 +607,7 @@ async function getFootballDataForm(homeName, awayName, leagueName) {
       && Number.isFinite(Number(match.score?.fullTime?.away)))
     .map(convertMatch)
     .sort((a, b) => (b.fixture.timestamp || 0) - (a.fixture.timestamp || 0))
-    .slice(0, 5);
+    .slice(0, 3);
 
   const homeMatches = homeResult.status === "fulfilled" ? homeResult.value : null;
   const awayMatches = awayResult.status === "fulfilled" ? awayResult.value : null;
@@ -746,7 +746,7 @@ async function getApiNinjasForm(homeName, awayName) {
       .filter((match) => match.fixture.timestamp
         && Number.isFinite(match.goals.home) && Number.isFinite(match.goals.away))
       .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp)
-      .slice(0, 5)
+      .slice(0, 3)
       .map((match) => {
         if (String(match.teams.home.id) === String(team.team_id)) match.teams.home.id = team.team_id;
         if (String(match.teams.away.id) === String(team.team_id)) match.teams.away.id = team.team_id;
@@ -862,7 +862,7 @@ async function getEspnForm(homeName, awayName, leagueName) {
     .map(espnEventToMatch)
     .filter(Boolean)
     .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp)
-    .slice(0, 5);
+    .slice(0, 3);
   const homeRecent = matchesFrom(homeSchedule);
   const awayRecent = matchesFrom(awaySchedule);
   const h2h = [...(homeSchedule.events || []), ...(awaySchedule.events || [])]
