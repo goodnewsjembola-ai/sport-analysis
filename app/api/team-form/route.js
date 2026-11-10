@@ -223,7 +223,7 @@ async function getNpFlForm(homeName, awayName) {
   };
 }
 async function findGoalTeamByName(name, key) {
-  const query = new URLSearchParams({ search: name, limit: "50" });
+  // GOAL API search rejects accented characters; strip diacritics before querying.\n  const searchName = String(name || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "");\n  const query = new URLSearchParams({ search: searchName, limit: "50" });
   const body = await goalApi(`/teams?${query.toString()}`, key);
   const teams = Array.isArray(body) ? body : body?.teams || body?.items || [];
   return findGoalTeam(teams, name);
