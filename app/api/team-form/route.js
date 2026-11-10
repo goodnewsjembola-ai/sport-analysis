@@ -58,11 +58,29 @@ function sortApiFootballRecent(items) {
     .slice(0, 5);
 }
 
-async function getApiFootballForm(homeId, awayId) {
+async function findApiFootballTeamId(teamName, key) {
+  const query = new URLSearchParams({ search: teamName });
+  const teams = await apiFootball(`/teams?${query.toString()}`, key);
+  const wanted = normalize(teamName);
+  const exact = teams.find((item) => normalize(item.team?.name) === wanted);
+  const selected = exact || teams.find((item) => {
+    const candidate = normalize(item.team?.name);
+    return candidate.length > 4 && wanted.length > 4
+      && (candidate.includes(wanted) || wanted.includes(candidate));
+  });
+  return selected?.team?.id || null;
+}
+
+async function getApiFootballForm(homeName, awayName) {
   const key = process.env.API_FOOTBALL_KEY;
   if (!key) throw new Error("API_FOOTBALL_KEY is missing from the server environment.");
-  if (!/^\d+$/.test(String(homeId || "")) || !/^\d+$/.test(String(awayId || ""))) {
-    throw new Error("The fixture did not include valid API-Football team IDs for recent-form lookup.");
+  // Resolve IDs in API-Football itself; fixture IDs may belong to GOAL API.
+  const [homeId, awayId] = await Promise.all([
+    findApiFootballTeamId(homeName, key),
+    findApiFootballTeamId(awayName, key),
+  ]);
+  if (!homeId || !awayId) {
+    throw new Error(`API-Football could not resolve its own team IDs. Home: ${homeId || "not found"}; Away: ${awayId || "not found"}.`);
   }
 
   // API-Football requires season whenever the fixtures request includes team.
@@ -227,12 +245,22 @@ async function getNpFlForm(homeName, awayName) {
   };
 }
 async function findGoalTeamByName(name, key) {
-  // GOAL API search rejects accented characters; strip diacritics before querying.
-  const searchName = String(name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const query = new URLSearchParams({ search: searchName, limit: "50" });
-  const body = await goalApi(`/teams?${query.toString()}`, key);
-  const teams = Array.isArray(body) ? body : body?.teams || body?.items || [];
-  return findGoalTeam(teams, name);
+  // Use the documented, paginated GOAL team directory. An undocumented
+  // search query can silently return only the first page and miss clubs.
+  const limit = 100;
+  for (let page = 0; page < 20; page += 1) {
+    const body = await goalApi(`/teams?limit=${limit}&offset=${page * limit}`, key);
+    const data = body?.data ?? body;
+    const teams = Array.isArray(data) ? data
+      : Array.isArray(data?.teams) ? data.teams
+      : Array.isArray(data?.items) ? data.items
+      : [];
+    const match = findGoalTeam(teams, name);
+    if (match) return match;
+    const pagination = body?.pagination || data?.pagination;
+    if (pagination?.hasMore === false || teams.length < limit) break;
+  }
+  return null;
 }
 
 function goalFixtureToStandard(match) {
@@ -666,7 +694,7 @@ export async function GET(request) {
     // Try both fallback providers independently. A restriction or outage in
     // one provider must not prevent valid results from the other being used.
     const [apiFootballResult, footballDataResult, espnResult] = await Promise.allSettled([
-      getApiFootballForm(homeId, awayId),
+      getApiFootballForm(homeName, awayName),
       getFootballDataForm(homeName, awayName, leagueName),
       getEspnForm(homeName, awayName, leagueName),
     ]);
