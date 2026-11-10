@@ -353,6 +353,10 @@ export default function Home() {
           {!loadingFixtures && !fixturesError && visibleFixtures.map((fixture) => {
             const score = getScore(fixture);
             const fixtureId = fixture.fixture?.id;
+            const homeTeamId = fixture.teams?.home?.id;
+            const awayTeamId = fixture.teams?.away?.id;
+            const homeTeamName = fixture.teams?.home?.name || "Home team";
+            const awayTeamName = fixture.teams?.away?.name || "Away team";
 
             return (
               <article className="match-card" key={fixtureId}>
@@ -511,10 +515,8 @@ export default function Home() {
                             )}
                             {formByFixture[fixtureId] && (() => {
                               const form = formByFixture[fixtureId];
-                              const homeId = fixture.teams?.home?.id;
-                              const awayId = fixture.teams?.away?.id;
-                              const homeResults = (form.homeRecent || []).map((match) => getTeamResult(match, homeId)).filter(Boolean);
-                              const awayResults = (form.awayRecent || []).map((match) => getTeamResult(match, awayId)).filter(Boolean);
+                              const homeResults = (form.homeRecent || []).map((match) => getTeamResult(match, homeTeamId)).filter(Boolean);
+                              const awayResults = (form.awayRecent || []).map((match) => getTeamResult(match, awayTeamId)).filter(Boolean);
                               const meetings = (form.headToHead || []).map(getHeadToHeadResult).filter(Boolean);
                               const renderTeamForm = (name, results) => (
                                 <div className="form-team-card">
@@ -535,8 +537,8 @@ export default function Home() {
                               return (
                                 <>
                                   <div className="form-teams-grid">
-                                    {renderTeamForm(fixture.teams?.home?.name || "Home team", homeResults)}
-                                    {renderTeamForm(fixture.teams?.away?.name || "Away team", awayResults)}
+                                    {renderTeamForm(homeTeamName, homeResults)}
+                                    {renderTeamForm(awayTeamName, awayResults)}
                                   </div>
                                   <div className="h2h-block">
                                     <div className="h2h-title"><strong>Head-to-head</strong><span>PREVIOUS MEETINGS</span></div>
