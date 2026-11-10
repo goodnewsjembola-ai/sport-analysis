@@ -65,13 +65,22 @@ async function getApiFootballForm(homeId, awayId) {
     throw new Error("The fixture did not include valid API-Football team IDs for recent-form lookup.");
   }
 
-  // Request the team's latest fixtures without the status filter. Some
-  // provider responses can be empty when last= and status= are combined.
-  // Filter completed matches locally so postponed/live fixtures are excluded.
+  // The user's API-Football Free plan does not allow the "last" parameter.
+  // Use supported date windows instead, then sort and keep the latest five FT
+  // results locally. Recent form is limited to the last 365 days.
+  const today = new Date();
+  const to = today.toISOString().slice(0, 10);
+  const recentStart = new Date(today);
+  recentStart.setUTCDate(recentStart.getUTCDate() - 365);
+  const from = recentStart.toISOString().slice(0, 10);
+  const h2hStart = new Date(today);
+  h2hStart.setUTCFullYear(h2hStart.getUTCFullYear() - 5);
+  const h2hFrom = h2hStart.toISOString().slice(0, 10);
+
   const [homeData, awayData, h2hData] = await Promise.all([
-    apiFootball(`/fixtures?team=${homeId}&last=20`, key),
-    apiFootball(`/fixtures?team=${awayId}&last=20`, key),
-    apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}&last=20`, key),
+    apiFootball(`/fixtures?team=${homeId}&from=${from}&to=${to}`, key),
+    apiFootball(`/fixtures?team=${awayId}&from=${from}&to=${to}`, key),
+    apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}&from=${h2hFrom}&to=${to}`, key),
   ]);
 
   const homeRecent = sortApiFootballRecent(homeData);
