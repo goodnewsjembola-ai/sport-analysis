@@ -564,7 +564,12 @@ export default function Home() {
                               <p className="form-message">{formByFixture[fixtureId].formNotice}</p>
                             )}
                             {formByFixture[fixtureId]?.warnings?.length > 0 && (
-                              <p className="form-message">Some recent-form information could not be retrieved. Available results are shown below.</p>
+                              <div className="form-message">
+                                <p>Some recent-form information could not be retrieved. Provider details:</p>
+                                {formByFixture[fixtureId].warnings.map((warning, index) => (
+                                  <small key={index} style={{ display: "block", marginTop: "6px" }}>{warning}</small>
+                                ))}
+                              </div>
                             )}
                             {formByFixture[fixtureId] && (() => {
                               const form = formByFixture[fixtureId];
