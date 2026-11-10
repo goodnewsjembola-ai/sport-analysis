@@ -356,6 +356,101 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
     source: "GOAL API", teamsMatched: { home: homeTeam.name, away: awayTeam.name } };
 }
 
+
+async function getGoalLeagueHistory(leagueName, homeName, awayName) {
+  const key = process.env.GOAL_API_KEY;
+  if (!key || !leagueName) return { homeRecent: [], awayRecent: [], headToHead: [], source: null };
+
+  // Resolve the actual competition from GOAL API's league directory instead
+  // of assuming every domestic league has a hard-coded provider mapping.
+  const wantedLeague = normalize(leagueName);
+  let league = null;
+  let offset = 0;
+  for (let page = 0; page < 20; page += 1) {
+    const url = new URL("https://api.goal-api.com/v1/leagues");
+    url.searchParams.set("limit", "100");
+    url.searchParams.set("offset", String(offset));
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      next: { revalidate: 1800 },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body?.success === false) {
+      throw new Error(body?.error?.message || body?.message || `GOAL API leagues returned HTTP ${response.status}`);
+    }
+    const data = body?.data ?? body;
+    const nested = data?.data ?? data;
+    const leagues = Array.isArray(nested) ? nested
+      : Array.isArray(nested?.leagues) ? nested.leagues
+      : Array.isArray(nested?.items) ? nested.items
+      : Array.isArray(nested?.results) ? nested.results : [];
+    league = leagues.find((item) => normalize(item.name) === wantedLeague)
+      || leagues.find((item) => normalize(item.name).includes(wantedLeague) || wantedLeague.includes(normalize(item.name)))
+      || null;
+    if (league) break;
+    const pagination = body?.pagination || data?.pagination || nested?.pagination;
+    if (pagination?.hasMore === false || (!pagination && leagues.length < 100) || !leagues.length) break;
+    const nextOffset = Number(pagination?.offset) + Number(pagination?.limit || leagues.length);
+    offset = Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : offset + leagues.length;
+  }
+  if (!league?.id && !league?.apiId) {
+    return { homeRecent: [], awayRecent: [], headToHead: [], source: null, warning: `GOAL API has no matching league entry for "${leagueName}".` };
+  }
+
+  const leagueId = league.id || league.apiId;
+  const rows = [];
+  offset = 0;
+  for (let page = 0; page < 10; page += 1) {
+    const url = new URL(`https://api.goal-api.com/v1/leagues/${encodeURIComponent(leagueId)}/results`);
+    url.searchParams.set("limit", "100");
+    url.searchParams.set("offset", String(offset));
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      next: { revalidate: 1800 },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body?.success === false) {
+      throw new Error(body?.error?.message || body?.message || `GOAL API league results returned HTTP ${response.status}`);
+    }
+    const data = body?.data ?? body;
+    const nested = data?.data ?? data;
+    const matches = Array.isArray(nested) ? nested
+      : Array.isArray(nested?.results) ? nested.results
+      : Array.isArray(nested?.matches) ? nested.matches
+      : Array.isArray(nested?.items) ? nested.items : [];
+    rows.push(...matches);
+    const pagination = body?.pagination || data?.pagination || nested?.pagination;
+    if (pagination?.hasMore === false || (!pagination && matches.length < 100) || !matches.length) break;
+    const nextOffset = Number(pagination?.offset) + Number(pagination?.limit || matches.length);
+    offset = Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : offset + matches.length;
+  }
+
+  const targetHome = normalize(homeName);
+  const targetAway = normalize(awayName);
+  const verified = rows.map(goalFixtureToStandard).filter((match) => {
+    const status = String(match.fixture?.status?.short || "").toUpperCase();
+    return status === "FT" && match.fixture?.timestamp
+      && Number.isInteger(match.goals?.home) && Number.isInteger(match.goals?.away)
+      && match.goals.home >= 0 && match.goals.away >= 0
+      && match.teams?.home?.name && match.teams?.away?.name;
+  }).sort((a, b) => b.fixture.timestamp - a.fixture.timestamp);
+
+  const belongsTo = (match, team) =>
+    normalize(match.teams.home.name) === team || normalize(match.teams.away.name) === team;
+  const homeRecent = verified.filter((match) => belongsTo(match, targetHome)).slice(0, 5);
+  const awayRecent = verified.filter((match) => belongsTo(match, targetAway)).slice(0, 5);
+  const headToHead = verified.filter((match) => {
+    const h = normalize(match.teams.home.name), a = normalize(match.teams.away.name);
+    return (h === targetHome && a === targetAway) || (h === targetAway && a === targetHome);
+  }).slice(0, 5);
+
+  return {
+    homeRecent, awayRecent, headToHead,
+    source: "GOAL API league results",
+    warning: rows.length ? null : `GOAL API returned no completed results for ${league.name || leagueName}.`,
+  };
+}
+
 function mergeRecentMatches(primary, fallback) {
   const seen = new Set();
   return [...(primary || []), ...(fallback || [])]
