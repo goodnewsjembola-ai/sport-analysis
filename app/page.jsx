@@ -349,6 +349,30 @@ export default function Home() {
                               <strong>{percent.away || "—"}</strong>
                             </div>
                           </div>
+                          <section className="probability-chart" aria-label="Home win, draw and away win probability comparison">
+                            <div className="probability-chart-heading">
+                              <div><small>1X2 PROBABILITY</small><strong>Outcome comparison</strong></div>
+                              <span>PROVIDER DATA</span>
+                            </div>
+                            {[
+                              ["Home win", percent.home, "home"],
+                              ["Draw", percent.draw, "draw"],
+                              ["Away win", percent.away, "away"],
+                            ].map(([label, rawValue, type]) => {
+                              const numericValue = Number.parseFloat(String(rawValue ?? "").replace("%", "").trim());
+                              const valid = Number.isFinite(numericValue) && numericValue >= 0;
+                              const value = valid ? Math.min(100, numericValue) : 0;
+                              return (
+                                <div className="probability-row" key={type}>
+                                  <div className="probability-label"><span>{label}</span><strong>{valid ? `${numericValue}%` : "—"}</strong></div>
+                                  <div className="probability-track">
+                                    {valid && <span className={`probability-fill probability-${type}`} style={{ width: `${value}%` }} />}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            <p>Percentages are the provider's estimated probabilities for the three match outcomes.</p>
+                          </section>
                           {(() => {
                             const confidence = getConfidence(percent);
                             return (
