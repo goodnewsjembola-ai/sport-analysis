@@ -200,7 +200,7 @@ async function getNpFlForm(homeName, awayName) {
     goalApi(`/h2h/${homeTeam.id}/${awayTeam.id}/direct`, key),
   ]);
 
-  const asArray = (value) => Array.isArray(value) ? value : value?.matches || value?.results || value?.items || [];
+  const asArray = (value) => Array.isArray(value) ? value : value?.matches || value?.results || value?.items || value?.data || [];
   const completed = (items) => asArray(items)
     .filter((match) => String(match.matchStatus || "").toUpperCase() === "FINISHED"
       && match.homeTeamFtScore !== null && match.homeTeamFtScore !== undefined
@@ -251,6 +251,46 @@ function goalFixtureToStandard(match) {
   };
 }
 
+async function getGoalTeamResults(teamId, key) {
+  // The team-scoped endpoint and the results-by-team endpoint are both
+  // supported by GOAL API. Query both because coverage can differ by route.
+  const paths = [
+    `/teams/${encodeURIComponent(teamId)}/results?limit=100`,
+    `/results/team/${encodeURIComponent(teamId)}?limit=100`,
+  ];
+  const responses = await Promise.allSettled(paths.map((path) => goalApi(path, key)));
+  const rows = [];
+  const errors = [];
+  for (const result of responses) {
+    if (result.status === "fulfilled") {
+      const value = result.value;
+      const list = Array.isArray(value) ? value
+        : Array.isArray(value?.results) ? value.results
+        : Array.isArray(value?.matches) ? value.matches
+        : Array.isArray(value?.items) ? value.items
+        : Array.isArray(value?.data) ? value.data : [];
+      rows.push(...list);
+    } else {
+      errors.push(result.reason?.message || "request failed");
+    }
+  }
+  if (!rows.length && errors.length === responses.length) {
+    throw new Error(errors.join("; "));
+  }
+  const seen = new Set();
+  return rows.filter((match) => {
+    const id = match.id || match.apiId || match.match_id;
+    const key = id ? `id:${id}` : JSON.stringify([
+      match.kickoffUtc || match.matchDate || match.match_date,
+      match.homeTeamId || match.match_hometeam_id,
+      match.awayTeamId || match.match_awayteam_id,
+    ]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   const key = process.env.GOAL_API_KEY;
   if (!key) throw new Error("GOAL_API_KEY is missing from the server environment.");
@@ -259,8 +299,8 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   // Keep each provider request independent: a missing/unsupported H2H record
   // must not erase valid recent-form results for either team.
   const [homeRequest, awayRequest, h2hRequest] = await Promise.allSettled([
-    goalApi(`/teams/${encodeURIComponent(homeTeam.id)}/results?limit=50`, key),
-    goalApi(`/teams/${encodeURIComponent(awayTeam.id)}/results?limit=50`, key),
+    getGoalTeamResults(homeTeam.id, key),
+    getGoalTeamResults(awayTeam.id, key),
     goalApi(`/h2h/${encodeURIComponent(homeTeam.id)}/${encodeURIComponent(awayTeam.id)}/direct?limit=50`, key),
   ]);
   const homeBody = homeRequest.status === "fulfilled" ? homeRequest.value : [];
@@ -272,12 +312,14 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
     ...(h2hRequest.status === "rejected" && !String(h2hRequest.reason?.message || "").includes("HTTP 404") ? [`GOAL API head-to-head is unavailable: ${h2hRequest.reason?.message || "request failed"}`] : []),
   ];
   const asArray = (value) => Array.isArray(value) ? value : value?.matches || value?.results || value?.items || [];
+  const recentCutoff = Math.floor((Date.now() - 365 * 86400000) / 1000);
   const completed = (items) => asArray(items)
     .filter((match) => ["FINISHED", "FT"].includes(String(match.matchStatus || match.match_status || "").toUpperCase())
       && (match.homeTeamFtScore ?? match.homeTeamScore ?? match.match_hometeam_score) !== null
       && (match.awayTeamFtScore ?? match.awayTeamScore ?? match.match_awayteam_score) !== null)
     .map(goalFixtureToStandard)
-    .filter((match) => Number.isFinite(match.goals.home) && Number.isFinite(match.goals.away))
+    .filter((match) => Number.isFinite(match.goals.home) && Number.isFinite(match.goals.away)
+      && match.fixture.timestamp >= recentCutoff)
     .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp).slice(0, 5);
   const attachFixtureTeamId = (matches, targetTeam, apiTeamId) => matches.map((match) => {
     if (normalize(match.teams.home.name) === normalize(targetTeam.name)) match.teams.home.id = apiTeamId;
