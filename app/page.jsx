@@ -500,6 +500,9 @@ export default function Home() {
                             </div>
                             {formLoading === fixtureId && <p className="form-message">Loading recent results and previous meetings...</p>}
                             {formErrors[fixtureId] && <div className="form-message form-error"><p>{formErrors[fixtureId]}</p>{formErrors[fixtureId].details?.map((detail, index) => <small key={index}>{detail}</small>)}</div>}
+                            {formByFixture[fixtureId]?.formNotice && (
+                              <p className="form-message">{formByFixture[fixtureId].formNotice}</p>
+                            )}
                             {formByFixture[fixtureId]?.warnings?.length > 0 && (
                               <p className="form-message">Some recent-form information could not be retrieved. Available results are shown below.</p>
                             )}
