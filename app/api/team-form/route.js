@@ -25,7 +25,7 @@ function normalize(value) {
     .toLowerCase()
     // Normalize common broadcast/provider abbreviations before matching.
     // "Man Utd", "Manchester Utd" and "Manchester United" must resolve
-    // to the same club across GOAL, ESPN, API-Football and API Ninjas.
+    // to the same club across GOAL API, ESPN and API Ninjas.
     .replace(/\bman\s*u\b/g, "manchester united")
     .replace(/\bmanu\b/g, "manchester united")
     .replace(/\butd\b/g, "united")
@@ -786,7 +786,7 @@ export async function GET(request) {
     }
   }
 
-  // G SPORT uses independent non-API-Football feeds for team history.
+  // G SPORT uses independent data feeds for team history.
   // Each source is isolated so one provider outage cannot discard the others.
   let goalData;
   let goalError = null;
