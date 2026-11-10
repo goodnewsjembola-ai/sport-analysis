@@ -166,6 +166,64 @@ function getTeamResult(fixture, teamId, teamName) {
   };
 }
 
+
+function poissonProbability(lambda, goals) {
+  let probability = Math.exp(-lambda);
+  for (let i = 1; i <= goals; i++) probability *= lambda / i;
+  return probability;
+}
+
+function buildFormModel(form, homeName, awayName) {
+  if (!form) return null;
+  const homeMatches = (form.homeRecent || []).map((match) => getTeamResult(match, null, homeName)).filter(Boolean).slice(0, 3);
+  const awayMatches = (form.awayRecent || []).map((match) => getTeamResult(match, null, awayName)).filter(Boolean).slice(0, 3);
+  if (homeMatches.length < 2 || awayMatches.length < 2) return null;
+  const averages = (matches) => ({
+    scored: matches.reduce((sum, match) => sum + Number(match.score.split(" - ")[0]), 0) / matches.length,
+    conceded: matches.reduce((sum, match) => sum + Number(match.score.split(" - ")[1]), 0) / matches.length,
+  });
+  const home = averages(homeMatches), away = averages(awayMatches);
+  let homeExpected = (home.scored + away.conceded) / 2;
+  let awayExpected = (away.scored + home.conceded) / 2;
+  const meetings = (form.headToHead || []).map((match) => {
+    const h = match.teams?.home?.name || "", a = match.teams?.away?.name || "";
+    const hg = Number(match.goals?.home), ag = Number(match.goals?.away);
+    if (!h || !a || !Number.isFinite(hg) || !Number.isFinite(ag)) return null;
+    const nh = normalizeFormTeamName(h), na = normalizeFormTeamName(a);
+    const wh = normalizeFormTeamName(homeName), wa = normalizeFormTeamName(awayName);
+    if (nh === wh && na === wa) return [hg, ag];
+    if (nh === wa && na === wh) return [ag, hg];
+    return null;
+  }).filter(Boolean).slice(0, 5);
+  if (meetings.length) {
+    const hh = meetings.reduce((sum, score) => sum + score[0], 0) / meetings.length;
+    const ha = meetings.reduce((sum, score) => sum + score[1], 0) / meetings.length;
+    homeExpected = homeExpected * 0.85 + hh * 0.15;
+    awayExpected = awayExpected * 0.85 + ha * 0.15;
+  }
+  homeExpected = Math.max(0.15, Math.min(3.5, homeExpected * 1.08));
+  awayExpected = Math.max(0.15, Math.min(3.5, awayExpected));
+  const hp = Array.from({ length: 7 }, (_, i) => poissonProbability(homeExpected, i));
+  const ap = Array.from({ length: 7 }, (_, i) => poissonProbability(awayExpected, i));
+  let hw = 0, dr = 0, aw = 0, over25 = 0;
+  for (let h = 0; h < 7; h++) for (let a = 0; a < 7; a++) {
+    const p = hp[h] * ap[a];
+    if (h > a) hw += p; else if (h === a) dr += p; else aw += p;
+    if (h + a > 2) over25 += p;
+  }
+  const total = hw + dr + aw;
+  const outcomes = [{ name: homeName, value: hw / total }, { name: "Draw", value: dr / total }, { name: awayName, value: aw / total }].sort((a, b) => b.value - a.value);
+  return {
+    model: true,
+    predictions: {
+      percent: { home: Math.round(hw / total * 100) + "%", draw: Math.round(dr / total * 100) + "%", away: Math.round(aw / total * 100) + "%" },
+      winner: { name: outcomes[0].value - outcomes[1].value < 0.06 ? "No clear favourite" : outcomes[0].name, comment: "Estimated from each team's last three verified results" + (meetings.length ? " and " + meetings.length + " verified head-to-head meetings." : ".") },
+      under_over: over25 >= 0.5 ? "+2.5" : "-2.5",
+      goals: { home: 1 - Math.exp(-homeExpected) >= 0.5 ? "+0.5" : "-0.5", away: 1 - Math.exp(-awayExpected) >= 0.5 ? "+0.5" : "-0.5" },
+    },
+  };
+}
+
 function getHeadToHeadResult(fixture) {
   const homeGoals = fixture.goals?.home;
   const awayGoals = fixture.goals?.away;
@@ -497,7 +555,7 @@ export default function Home() {
                       </div>
                     )}
                     {(analysisByFixture[fixtureId] || formByFixture[fixtureId]) && (() => {
-                      const item = analysisByFixture[fixtureId] || {};
+                      const item = analysisByFixture[fixtureId] || buildFormModel(formByFixture[fixtureId], fixture.teams?.home?.name || "Home", fixture.teams?.away?.name || "Away") || {};
                       const prediction = item.predictions || {};
                       const percent = prediction.percent || {};
                       const goals = prediction.goals || {};
@@ -509,10 +567,10 @@ export default function Home() {
                         <div className="prediction-content">
                           <div className="prediction-heading">
                             <div>
-                              <span className="prediction-kicker">PROVIDER MATCH PREDICTION</span>
+                              <span className="prediction-kicker">{item.model ? "G SPORT FORM MODEL" : "PROVIDER MATCH PREDICTION"}</span>
                               <h3>Match intelligence</h3>
                             </div>
-                            <span className="provider-tag">API-FOOTBALL</span>
+                            <span className="provider-tag">{item.model ? "FORM-BASED ESTIMATE" : "API-FOOTBALL"}</span>
                           </div>
                           <div className="prediction-stats">
                             <div className="prediction-stat">
@@ -531,7 +589,7 @@ export default function Home() {
                           <section className="probability-chart" aria-label="Home win, draw and away win probability comparison">
                             <div className="probability-chart-heading">
                               <div><small>1X2 PROBABILITY</small><strong>Outcome comparison</strong></div>
-                              <span>PROVIDER DATA</span>
+                              <span>{item.model ? "MODEL ESTIMATE" : "PROVIDER DATA"}</span>
                             </div>
                             {[
                               ["Home win", percent.home, "home"],
@@ -550,7 +608,7 @@ export default function Home() {
                                 </div>
                               );
                             })}
-                            <p>Percentages are the provider's estimated probabilities for the three match outcomes.</p>
+                            <p>{item.model ? "Estimated probabilities calculated from verified recent team results, with available head-to-head meetings given a smaller weighting. These are statistical estimates, not guaranteed outcomes." : "Percentages are the provider's estimated probabilities for the three match outcomes."}</p>
                           </section>
                           {(() => {
                             const confidence = getConfidence(percent);
@@ -566,7 +624,7 @@ export default function Home() {
                                   </div>
                                 )}
                                 <p>{confidence
-                                  ? `Strongest outcome probability: ${confidence.strongest}%. This is a simple G Sport rating based on the provider's 1X2 percentages.`
+                                  ? `Strongest outcome probability: ${confidence.strongest}%. This is a simple G Sport rating based on {item.model ? "the form model estimate" : "the provider's 1X2 percentages"}.`
                                   : "The provider has not supplied enough 1X2 probability data to calculate this indicator."}</p>
                               </section>
                             );
@@ -578,7 +636,7 @@ export default function Home() {
                           <section className="team-goals-section" aria-label="Team goals estimates">
                             <div className="team-goals-heading">
                               <div><span className="goals-heading-mark">02</span><div><small>GOALS BREAKDOWN</small><h4>Team goals <em>estimates.</em></h4></div></div>
-                              <span className="provider-estimate-label">PROVIDER DATA</span>
+                              <span className="provider-estimate-label">{item.model ? "MODEL ESTIMATE" : "PROVIDER DATA"}</span>
                             </div>
                             <div className="team-goals-grid">
                               <div className="team-goal-tile">
