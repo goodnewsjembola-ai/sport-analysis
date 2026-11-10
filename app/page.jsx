@@ -323,9 +323,9 @@ export default function Home() {
                           <div className="prediction-details">
                             <div><small>Predicted winner</small><strong>{winner.name || "No clear favourite"}</strong>{winner.comment && <span>{winner.comment}</span>}</div>
                             <div>
-                              <small>Team goals estimate</small>
-                              <strong>{homeGoals ? `Home: ${homeGoals}` : "Home: Not available"}</strong>
-                              <span>{awayGoals ? `Away: ${awayGoals}` : "Away: Not available"}</span>
+                              <small>TEAM GOALS · HOME / AWAY</small>
+                              <strong>{homeGoals ? `Home team: ${homeGoals}` : "Home team: Not available"}</strong>
+                              <span>{awayGoals ? `Away team: ${awayGoals}` : "Away team: Not available"}</span>
                             </div>
                             <div><small>Goals market</small><strong>{goalsMarket || "Not available"}</strong><span>Provider estimate</span></div>
                           </div>
