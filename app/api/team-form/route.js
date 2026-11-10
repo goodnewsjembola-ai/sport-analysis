@@ -23,7 +23,7 @@ function normalize(value) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/\b(fc|cf|afc|club|football club)\b/g, "")
+    .replace(/\b(fc|cf|afc|club|football club|town)\b/g, "")
     .replace(/[^a-z0-9]/g, "");
 }
 
@@ -329,11 +329,9 @@ async function footballData(path, token) {
 function findTeam(teams, targetName) {
   const wanted = normalize(targetName);
   if (!wanted) return null;
+  // Exact normalized matching avoids accidentally mapping a youth side to
+  // its senior club when a provider returns partial-name search results.
   return teams.find((team) => normalize(team.name) === wanted || normalize(team.shortName) === wanted || normalize(team.tla) === wanted)
-    || teams.find((team) => {
-      const candidate = normalize(team.name);
-      return candidate.length > 4 && wanted.length > 4 && (candidate.includes(wanted) || wanted.includes(candidate));
-    })
     || null;
 }
 
@@ -449,6 +447,7 @@ const ESPN_LEAGUES = [
   { slug: "eng.1", names: ["premier league", "english premier league"] },
   { slug: "eng.3", names: ["league one", "english league one"] },
   { slug: "eng.4", names: ["league two", "english league two"] },
+  { slug: "eng.trophy", names: ["efl trophy", "english football league trophy", "football league trophy", "leasing.com trophy", "pizza cup"] },
   { slug: "esp.1", names: ["la liga", "laliga", "primera division"] },
   { slug: "ita.1", names: ["serie a"] },
   { slug: "ger.1", names: ["bundesliga"] },
