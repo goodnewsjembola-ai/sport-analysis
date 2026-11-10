@@ -361,29 +361,17 @@ async function getFootballDataForm(homeName, awayName, leagueName) {
   const token = process.env.FOOTBALL_DATA_TOKEN;
   if (!token) throw new Error("FOOTBALL_DATA_TOKEN is missing from the server environment.");
 
-  // Resolve Football-Data.org's own team IDs from the relevant competition.
-  // The fixture's API-Football IDs are not interchangeable with these IDs.
-  const normalizedLeague = normalize(leagueName);
-  let competition = COMPETITIONS.find((item) =>
-    item.names.some((name) => normalizedLeague.includes(normalize(name)))
-  );
-  // EFL Trophy clubs are resolved through their league membership; their
-  // all-competition team history is then requested independently.
-  if (!competition && normalizedLeague.includes("efltrophy")) {
-    competition = COMPETITIONS.find((item) => item.code === "ELC");
-  }
-  if (!competition) {
-    throw new Error(`Football-Data.org has no team-lookup competition mapping for "${leagueName}".`);
-  }
-
-  const now = new Date();
-  const season = now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
-  const teamData = await footballData(`/competitions/${competition.code}/teams?season=${season}`, token);
-  const teams = Array.isArray(teamData?.teams) ? teamData.teams : [];
+  // Search Football-Data.org's global team directory instead of assuming
+  // both clubs belong to the fixture's league. Cup fixtures often pair
+  // clubs from different divisions.
+  const directory = await footballData("/teams", token);
+  const teams = Array.isArray(directory?.teams) ? directory.teams : [];
   const homeTeam = findTeam(teams, homeName);
   const awayTeam = findTeam(teams, awayName);
   if (!homeTeam || !awayTeam) {
-    throw new Error(`Football-Data.org could not match both clubs in ${competition.code}. Home: ${homeTeam?.name || "not found"}; Away: ${awayTeam?.name || "not found"}.`);
+    throw new Error(
+      `Football-Data.org global team directory could not match both clubs. Home: ${homeTeam?.name || "not found"}; Away: ${awayTeam?.name || "not found"}.`
+    );
   }
 
   const today = new Date();
@@ -391,7 +379,7 @@ async function getFootballDataForm(homeName, awayName, leagueName) {
   const start = new Date(today);
   start.setUTCDate(start.getUTCDate() - 365);
   const from = start.toISOString().slice(0, 10);
-  const [homeData, awayData] = await Promise.all([
+  const [homeResult, awayResult] = await Promise.allSettled([
     footballData(`/teams/${homeTeam.id}/matches?dateFrom=${from}&dateTo=${to}&status=FINISHED&limit=100`, token),
     footballData(`/teams/${awayTeam.id}/matches?dateFrom=${from}&dateTo=${to}&status=FINISHED&limit=100`, token),
   ]);
@@ -404,28 +392,37 @@ async function getFootballDataForm(homeName, awayName, leagueName) {
     .sort((a, b) => (b.fixture.timestamp || 0) - (a.fixture.timestamp || 0))
     .slice(0, 5);
 
-  const homeRecent = recent(homeData);
-  const awayRecent = recent(awayData);
-  const h2h = [...(Array.isArray(homeData?.matches) ? homeData.matches : []),
-    ...(Array.isArray(awayData?.matches) ? awayData.matches : [])]
-    .filter((match) => match.status === "FINISHED"
-      && normalize(match.homeTeam?.name) !== normalize(match.awayTeam?.name)
-      && ((normalize(match.homeTeam?.name) === normalize(homeName)
-          && normalize(match.awayTeam?.name) === normalize(awayName))
-        || (normalize(match.homeTeam?.name) === normalize(awayName)
-          && normalize(match.awayTeam?.name) === normalize(homeName))))
+  const homeMatches = homeResult.status === "fulfilled" ? homeResult.value : null;
+  const awayMatches = awayResult.status === "fulfilled" ? awayResult.value : null;
+  const homeRecent = homeMatches ? recent(homeMatches) : [];
+  const awayRecent = awayMatches ? recent(awayMatches) : [];
+  const h2hMatches = [
+    ...(Array.isArray(homeMatches?.matches) ? homeMatches.matches : []),
+    ...(Array.isArray(awayMatches?.matches) ? awayMatches.matches : []),
+  ].filter((match) => match.status === "FINISHED"
+    && ((normalize(match.homeTeam?.name) === normalize(homeTeam.name)
+        && normalize(match.awayTeam?.name) === normalize(awayTeam.name))
+      || (normalize(match.homeTeam?.name) === normalize(awayTeam.name)
+        && normalize(match.awayTeam?.name) === normalize(homeTeam.name))))
     .map(convertMatch)
     .sort((a, b) => (b.fixture.timestamp || 0) - (a.fixture.timestamp || 0));
+
+  const warnings = [
+    ...(homeResult.status === "rejected"
+      ? [`Football-Data.org could not retrieve matches for ${homeTeam.name}: ${homeResult.reason?.message || "request failed"}.`]
+      : (!homeRecent.length ? [`Football-Data.org returned no completed recent results for ${homeTeam.name}.`] : [])),
+    ...(awayResult.status === "rejected"
+      ? [`Football-Data.org could not retrieve matches for ${awayTeam.name}: ${awayResult.reason?.message || "request failed"}.`]
+      : (!awayRecent.length ? [`Football-Data.org returned no completed recent results for ${awayTeam.name}.`] : [])),
+  ];
 
   return {
     homeRecent,
     awayRecent,
-    headToHead: mergeRecentMatches(h2h, []),
-    warnings: [
-      ...(!homeRecent.length ? [`Football-Data.org returned no completed recent results for ${homeName}.`] : []),
-      ...(!awayRecent.length ? [`Football-Data.org returned no completed recent results for ${awayName}.`] : []),
-    ],
+    headToHead: mergeRecentMatches(h2hMatches, []),
+    warnings,
     source: "Football-Data.org",
+    teamsMatched: { home: homeTeam.name, away: awayTeam.name },
   };
 }
 
