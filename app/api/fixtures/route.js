@@ -92,7 +92,7 @@ export async function GET(request) {
   const requestedDate = params.get("date");
   const date = requestedDate || getLagosDate();
 
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return Response.json(
       { error: "Date must use YYYY-MM-DD format.", code: "INVALID_DATE" },
       { status: 400 }
