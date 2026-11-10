@@ -601,19 +601,47 @@ async function apiNinjasJson(path, key) {
   return body;
 }
 
+let apiNinjasClubDirectoryPromise;
+
+async function getApiNinjasClubDirectory(key) {
+  if (!apiNinjasClubDirectoryPromise) {
+    apiNinjasClubDirectoryPromise = apiNinjasJson("/soccerclubs", key).catch((error) => {
+      apiNinjasClubDirectoryPromise = null;
+      throw error;
+    });
+  }
+  return apiNinjasClubDirectoryPromise;
+}
+
 async function findApiNinjasTeam(teamName, key) {
-  const clubs = await apiNinjasJson(`/soccerclubs?team=${encodeURIComponent(teamName)}`, key);
+  // Do not send a plain club name as the API's team filter: short names such
+  // as "Wigan" can be ambiguous and the provider may return HTTP 400.
+  // Load the club directory once, then resolve the exact club locally.
+  const clubs = await getApiNinjasClubDirectory(key);
   const wanted = normalize(teamName);
   const exact = clubs.find((club) =>
-    normalize(club.name) === wanted || normalize(club.short_name) === wanted || normalize(club.abbreviation) === wanted
+    normalize(club.name) === wanted
+    || normalize(club.short_name) === wanted
+    || normalize(club.abbreviation) === wanted
   );
-  const partial = clubs.filter((club) => {
-    const candidate = normalize(club.name || club.short_name);
-    return candidate.length > 4 && wanted.length > 3
-      && (candidate.includes(wanted) || wanted.includes(candidate));
-  }).sort((a, b) => normalize(a.name).length - normalize(b.name).length)[0];
-  const team = exact || partial || (clubs.length === 1 ? clubs[0] : null);
-  if (!team?.team_id) throw new Error(`API Ninjas could not identify "${teamName}" in its club directory.`);
+  const candidates = clubs.filter((club) => {
+    const name = normalize(club.name);
+    const shortName = normalize(club.short_name);
+    return wanted.length > 2 && (
+      name.startsWith(wanted) || shortName.startsWith(wanted)
+      || name.includes(wanted) || shortName.includes(wanted)
+    );
+  }).sort((a, b) => {
+    const aName = normalize(a.name);
+    const bName = normalize(b.name);
+    const aScore = aName.startsWith(wanted) ? 0 : 1;
+    const bScore = bName.startsWith(wanted) ? 0 : 1;
+    return aScore - bScore || aName.length - bName.length;
+  });
+  const team = exact || candidates[0];
+  if (!team?.team_id) {
+    throw new Error(`API Ninjas could not identify "${teamName}" in its full club directory.`);
+  }
   return team;
 }
 
