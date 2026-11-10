@@ -10,10 +10,15 @@ function getLagosDate() {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
-function unwrapList(body) {
+function unwrapPage(body) {
   const value = body?.data ?? body;
-  if (Array.isArray(value)) return value;
-  return value?.fixtures || value?.matches || value?.items || value?.response || [];
+  if (Array.isArray(value)) {
+    return { items: value, pagination: body?.pagination || null };
+  }
+  return {
+    items: value?.fixtures || value?.matches || value?.items || value?.response || [],
+    pagination: body?.pagination || value?.pagination || null,
+  };
 }
 
 function toApiFixture(match) {
@@ -62,15 +67,47 @@ function toApiFixture(match) {
 
 async function getGoalFixtures(date, key) {
   if (!key) throw new Error("GOAL_API_KEY is not configured.");
-  const response = await fetch(`https://api.goal-api.com/v1/fixtures/date/${encodeURIComponent(date)}`, {
-    headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
-    next: { revalidate: 600 },
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || body?.success === false) {
-    throw new Error(body?.error?.message || body?.message || `GOAL API returned HTTP ${response.status}`);
+
+  const allMatches = [];
+  const limit = 100;
+  let offset = 0;
+  let hasMore = true;
+  const maxPages = 25;
+
+  for (let pageNumber = 0; pageNumber < maxPages && hasMore; pageNumber += 1) {
+    const url = new URL(`https://api.goal-api.com/v1/fixtures/date/${encodeURIComponent(date)}`);
+    url.searchParams.set("limit", String(limit));
+    url.searchParams.set("offset", String(offset));
+
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      next: { revalidate: 600 },
+    });
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok || body?.success === false) {
+      throw new Error(body?.error?.message || body?.message || `GOAL API returned HTTP ${response.status}`);
+    }
+
+    const { items, pagination } = unwrapPage(body);
+    allMatches.push(...items);
+
+    // Follow the provider's pagination metadata. The length fallback supports
+    // responses that omit pagination while still returning a full page.
+    hasMore = pagination?.hasMore === true || (!pagination && items.length === limit);
+    if (pagination?.hasMore === false || items.length === 0) hasMore = false;
+
+    const nextOffset = Number(pagination?.offset) + Number(pagination?.limit || items.length);
+    offset = Number.isFinite(nextOffset) && nextOffset > offset
+      ? nextOffset
+      : offset + items.length;
+
+    if (items.length < limit && !pagination?.hasMore) hasMore = false;
   }
-  return unwrapList(body).map(toApiFixture).filter((item) => item.teams.home.name && item.teams.away.name);
+
+  return allMatches
+    .map(toApiFixture)
+    .filter((item) => item.teams.home.name && item.teams.away.name);
 }
 
 async function getFootballDataFixtures(date, token) {
