@@ -60,6 +60,10 @@ export default function Home() {
   const [loadingFixtures, setLoadingFixtures] = useState(true);
   const [fixturesError, setFixturesError] = useState("");
   const [fixtureDate, setFixtureDate] = useState("");
+  const [openAnalysis, setOpenAnalysis] = useState(null);
+  const [analysisByFixture, setAnalysisByFixture] = useState({});
+  const [analysisLoading, setAnalysisLoading] = useState(null);
+  const [analysisErrors, setAnalysisErrors] = useState({});
 
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +99,44 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  async function toggleAnalysis(fixtureId) {
+    if (!fixtureId) return;
+
+    if (openAnalysis === fixtureId) {
+      setOpenAnalysis(null);
+      return;
+    }
+
+    setOpenAnalysis(fixtureId);
+    if (analysisByFixture[fixtureId]) return;
+
+    setAnalysisLoading(fixtureId);
+    setAnalysisErrors((current) => ({ ...current, [fixtureId]: "" }));
+
+    try {
+      const response = await fetch(`/api/predictions?fixture=${fixtureId}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Match analysis could not be loaded.");
+      }
+
+      const result = data.predictions?.[0] || null;
+      if (!result) {
+        throw new Error("No prediction is available for this fixture yet.");
+      }
+
+      setAnalysisByFixture((current) => ({ ...current, [fixtureId]: result }));
+    } catch (error) {
+      setAnalysisErrors((current) => ({
+        ...current,
+        [fixtureId]: error.message || "Unable to load match analysis.",
+      }));
+    } finally {
+      setAnalysisLoading(null);
+    }
+  }
 
   const visibleFixtures = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -210,9 +252,70 @@ export default function Home() {
                 </div>
                 <div className="match-time">{formatKickoff(fixture.fixture?.date)}</div>
                 <div className="match-status">{getStatusLabel(fixture.fixture?.status?.short)}</div>
-                <button className="analysis-button" disabled title="Detailed match analysis is coming next">
-                  Analysis soon <span>↗</span>
+                <button
+                  className="analysis-button"
+                  onClick={() => toggleAnalysis(fixtureId)}
+                  aria-expanded={openAnalysis === fixtureId}
+                >
+                  {openAnalysis === fixtureId ? "Close analysis" : "View analysis"} <span>↗</span>
                 </button>
+                {openAnalysis === fixtureId && (
+                  <div className="prediction-panel">
+                    {analysisLoading === fixtureId && <p className="prediction-message">Preparing match analysis...</p>}
+                    {analysisErrors[fixtureId] && (
+                      <div className="prediction-message prediction-error">
+                        <p>{analysisErrors[fixtureId]}</p>
+                        <button onClick={() => {
+                          setAnalysisByFixture((current) => {
+                            const next = { ...current };
+                            delete next[fixtureId];
+                            return next;
+                          });
+                          toggleAnalysis(fixtureId);
+                        }}>Try again</button>
+                      </div>
+                    )}
+                    {analysisByFixture[fixtureId] && (() => {
+                      const item = analysisByFixture[fixtureId];
+                      const prediction = item.predictions || {};
+                      const percent = prediction.percent || {};
+                      const goals = prediction.goals || {};
+                      const winner = prediction.winner || {};
+                      return (
+                        <div className="prediction-content">
+                          <div className="prediction-heading">
+                            <div>
+                              <span className="prediction-kicker">PROVIDER MATCH PREDICTION</span>
+                              <h3>Match intelligence</h3>
+                            </div>
+                            <span className="provider-tag">API-FOOTBALL</span>
+                          </div>
+                          <div className="prediction-stats">
+                            <div className="prediction-stat">
+                              <small>HOME WIN</small>
+                              <strong>{percent.home || "—"}</strong>
+                            </div>
+                            <div className="prediction-stat">
+                              <small>DRAW</small>
+                              <strong>{percent.draw || "—"}</strong>
+                            </div>
+                            <div className="prediction-stat">
+                              <small>AWAY WIN</small>
+                              <strong>{percent.away || "—"}</strong>
+                            </div>
+                          </div>
+                          <div className="prediction-details">
+                            <div><small>Predicted winner</small><strong>{winner.name || "No clear favourite"}</strong>{winner.comment && <span>{winner.comment}</span>}</div>
+                            <div><small>Goals estimate</small><strong>{goals.home ?? "—"} - {goals.away ?? "—"}</strong><span>Home - Away</span></div>
+                            <div><small>Goals market</small><strong>{prediction.under_over || "Not available"}</strong><span>Provider estimate</span></div>
+                          </div>
+                          {prediction.advice && <p className="prediction-advice"><b>Provider advice:</b> {prediction.advice}</p>}
+                          <p className="prediction-disclaimer">These are third-party statistical estimates, not guaranteed results. Availability and detail depend on the provider's data for this match.</p>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </article>
             );
           })}
@@ -226,7 +329,7 @@ export default function Home() {
           )}
         </div>
         <p className="data-notice">
-          Live fixture data is supplied by API-Football and displayed in Lagos time. Prediction calculations and detailed match analysis are the next development stage.
+          Live fixture data and match predictions are supplied by API-Football and displayed in Lagos time. Predictions are estimates, not guarantees.
         </p>
       </section>
 
