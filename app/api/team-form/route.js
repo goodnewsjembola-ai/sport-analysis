@@ -61,7 +61,7 @@ function sortApiFootballRecent(items) {
 async function getApiFootballForm(homeId, awayId) {
   const key = process.env.API_FOOTBALL_KEY;
   if (!key) throw new Error("API_FOOTBALL_KEY is missing from the server environment.");
-  if (!/^\\d+$/.test(String(homeId || "")) || !/^\\d+$/.test(String(awayId || ""))) {
+  if (!/^\d+$/.test(String(homeId || "")) || !/^\d+$/.test(String(awayId || ""))) {
     throw new Error("The fixture did not include valid API-Football team IDs for recent-form lookup.");
   }
 
