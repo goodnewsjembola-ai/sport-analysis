@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { saveVerifiedMatches } from "@/lib/match-store";
+import { getStoredTeamHistory, saveVerifiedMatches } from "@/lib/match-store";
 
 export const revalidate = 1800;
 
@@ -777,6 +777,14 @@ export async function GET(request) {
   if (normalize(leagueName).includes("npfl") || normalize(leagueName).includes("nigerianpremier")) {
     try {
       const npflData = await getNpFlForm(homeName, awayName);
+      try {
+        const stored = await getStoredTeamHistory(homeName, awayName);
+        npflData.homeRecent = mergeRecentMatches(npflData.homeRecent || [], stored.homeRecent || []);
+        npflData.awayRecent = mergeRecentMatches(npflData.awayRecent || [], stored.awayRecent || []);
+        npflData.headToHead = mergeH2HMatches(npflData.headToHead || [], stored.headToHead || []);
+      } catch (storageReadError) {
+        console.error("G SPORT NPFL history read failed:", storageReadError);
+      }
       let historyStore = { enabled: false, saved: 0, reason: "DATABASE_URL is not configured." };
       try {
         historyStore = await saveVerifiedMatches(
@@ -833,12 +841,24 @@ export async function GET(request) {
     ),
     ninjasFallback.awayRecent || []
   );
-  const headToHead = mergeH2HMatches(
+  let headToHead = mergeH2HMatches(
     goalData.headToHead || [],
     dataFallback.headToHead || [],
     espnFallback.headToHead || [],
     ninjasFallback.headToHead || []
   );
+
+  // G SPORT's own database is another factual source. It supplements current
+  // provider responses and preserves history when a provider temporarily has
+  // no record; it never supplies third-party predictions.
+  try {
+    const stored = await getStoredTeamHistory(homeName, awayName);
+    homeRecent.splice(0, homeRecent.length, ...mergeRecentMatches(homeRecent, stored.homeRecent || []));
+    awayRecent.splice(0, awayRecent.length, ...mergeRecentMatches(awayRecent, stored.awayRecent || []));
+    headToHead = mergeH2HMatches(headToHead, stored.headToHead || []);
+  } catch (storageReadError) {
+    console.error("G SPORT verified-history read failed:", storageReadError);
+  }
 
   const warnings = [
     ...(goalError ? ["GOAL API: " + (goalError.message || "No recent results returned.")] : (goalData.warnings || [])),
