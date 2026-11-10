@@ -356,6 +356,79 @@ function convertMatch(match) {
   };
 }
 
+
+async function getFootballDataForm(homeName, awayName, leagueName) {
+  const token = process.env.FOOTBALL_DATA_TOKEN;
+  if (!token) throw new Error("FOOTBALL_DATA_TOKEN is missing from the server environment.");
+
+  // Resolve Football-Data.org's own team IDs from the relevant competition.
+  // The fixture's API-Football IDs are not interchangeable with these IDs.
+  const normalizedLeague = normalize(leagueName);
+  let competition = COMPETITIONS.find((item) =>
+    item.names.some((name) => normalizedLeague.includes(normalize(name)))
+  );
+  // EFL Trophy clubs are resolved through their league membership; their
+  // all-competition team history is then requested independently.
+  if (!competition && normalizedLeague.includes("efltrophy")) {
+    competition = COMPETITIONS.find((item) => item.code === "ELC");
+  }
+  if (!competition) {
+    throw new Error(`Football-Data.org has no team-lookup competition mapping for "${leagueName}".`);
+  }
+
+  const now = new Date();
+  const season = now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+  const teamData = await footballData(`/competitions/${competition.code}/teams?season=${season}`, token);
+  const teams = Array.isArray(teamData?.teams) ? teamData.teams : [];
+  const homeTeam = findTeam(teams, homeName);
+  const awayTeam = findTeam(teams, awayName);
+  if (!homeTeam || !awayTeam) {
+    throw new Error(`Football-Data.org could not match both clubs in ${competition.code}. Home: ${homeTeam?.name || "not found"}; Away: ${awayTeam?.name || "not found"}.`);
+  }
+
+  const today = new Date();
+  const to = today.toISOString().slice(0, 10);
+  const start = new Date(today);
+  start.setUTCDate(start.getUTCDate() - 365);
+  const from = start.toISOString().slice(0, 10);
+  const [homeData, awayData] = await Promise.all([
+    footballData(`/teams/${homeTeam.id}/matches?dateFrom=${from}&dateTo=${to}&status=FINISHED&limit=100`, token),
+    footballData(`/teams/${awayTeam.id}/matches?dateFrom=${from}&dateTo=${to}&status=FINISHED&limit=100`, token),
+  ]);
+
+  const recent = (data) => (Array.isArray(data?.matches) ? data.matches : [])
+    .filter((match) => match.status === "FINISHED"
+      && Number.isFinite(Number(match.score?.fullTime?.home))
+      && Number.isFinite(Number(match.score?.fullTime?.away)))
+    .map(convertMatch)
+    .sort((a, b) => (b.fixture.timestamp || 0) - (a.fixture.timestamp || 0))
+    .slice(0, 5);
+
+  const homeRecent = recent(homeData);
+  const awayRecent = recent(awayData);
+  const h2h = [...(Array.isArray(homeData?.matches) ? homeData.matches : []),
+    ...(Array.isArray(awayData?.matches) ? awayData.matches : [])]
+    .filter((match) => match.status === "FINISHED"
+      && normalize(match.homeTeam?.name) !== normalize(match.awayTeam?.name)
+      && ((normalize(match.homeTeam?.name) === normalize(homeName)
+          && normalize(match.awayTeam?.name) === normalize(awayName))
+        || (normalize(match.homeTeam?.name) === normalize(awayName)
+          && normalize(match.awayTeam?.name) === normalize(homeName))))
+    .map(convertMatch)
+    .sort((a, b) => (b.fixture.timestamp || 0) - (a.fixture.timestamp || 0));
+
+  return {
+    homeRecent,
+    awayRecent,
+    headToHead: mergeRecentMatches(h2h, []),
+    warnings: [
+      ...(!homeRecent.length ? [`Football-Data.org returned no completed recent results for ${homeName}.`] : []),
+      ...(!awayRecent.length ? [`Football-Data.org returned no completed recent results for ${awayName}.`] : []),
+    ],
+    source: "Football-Data.org",
+  };
+}
+
 export async function GET(request) {
   const params = new URL(request.url).searchParams;
   const homeName = (params.get("homeName") || "").trim();
@@ -397,41 +470,50 @@ export async function GET(request) {
 
   const needsTopUp = goalData.homeRecent.length < 5 || goalData.awayRecent.length < 5;
   if (needsTopUp) {
-    try {
-      const fallback = await getApiFootballForm(homeId, awayId);
-      const homeRecent = mergeRecentMatches(goalData.homeRecent, fallback.homeRecent);
-      const awayRecent = mergeRecentMatches(goalData.awayRecent, fallback.awayRecent);
-      const headToHead = goalData.headToHead.length
-        ? goalData.headToHead
-        : fallback.headToHead;
-      const warnings = [
-        ...(goalError ? [`GOAL API: ${goalError.message || "No recent results returned."}`] : (goalData.warnings || [])),
-        ...(fallback.warnings || []),
-        ...(homeRecent.length < 5 ? [`Only ${homeRecent.length} completed recent matches could be retrieved for ${homeName} from the available providers.`] : []),
-        ...(awayRecent.length < 5 ? [`Only ${awayRecent.length} completed recent matches could be retrieved for ${awayName} from the available providers.`] : []),
-      ];
-      return NextResponse.json({
-        ...goalData,
-        homeRecent,
-        awayRecent,
-        headToHead,
-        warnings,
-        source: "GOAL API + API-Football",
-        formNotice: `Recent form combines the latest completed results from GOAL API and API-Football when either provider has fewer than five matches for a team. No unrelated teams or unfinished matches are included. Head-to-head meetings are listed separately.`,
-      });
-    } catch (apiError) {
-      console.error(`API-Football recent-form top-up failed for ${leagueName}:`, apiError);
-      const warnings = [
-        ...(goalError ? [`GOAL API: ${goalError.message || "No recent results returned."}`] : (goalData.warnings || [])),
-        `API-Football: ${apiError.message || "Recent-form top-up failed."}`,
-      ];
-      return NextResponse.json({
-        ...goalData,
-        warnings,
-        source: "GOAL API",
-        formNotice: "Recent form uses completed results available from GOAL API. API-Football could not supply any missing results.",
-      });
-    }
+    // Try both fallback providers independently. A restriction or outage in
+    // one provider must not prevent valid results from the other being used.
+    const [apiFootballResult, footballDataResult] = await Promise.allSettled([
+      getApiFootballForm(homeId, awayId),
+      getFootballDataForm(homeName, awayName, leagueName),
+    ]);
+    const apiFallback = apiFootballResult.status === "fulfilled"
+      ? apiFootballResult.value
+      : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`API-Football: ${apiFootballResult.reason?.message || "request failed"}`] };
+    const dataFallback = footballDataResult.status === "fulfilled"
+      ? footballDataResult.value
+      : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`Football-Data.org: ${footballDataResult.reason?.message || "request failed"}`] };
+
+    const homeRecent = mergeRecentMatches(
+      mergeRecentMatches(goalData.homeRecent, apiFallback.homeRecent),
+      dataFallback.homeRecent
+    );
+    const awayRecent = mergeRecentMatches(
+      mergeRecentMatches(goalData.awayRecent, apiFallback.awayRecent),
+      dataFallback.awayRecent
+    );
+    const headToHead = goalData.headToHead.length
+      ? goalData.headToHead
+      : mergeRecentMatches(apiFallback.headToHead, dataFallback.headToHead);
+    const warnings = [
+      ...(goalError ? [`GOAL API: ${goalError.message || "No recent results returned."}`] : (goalData.warnings || [])),
+      ...(apiFallback.warnings || []),
+      ...(dataFallback.warnings || []),
+      ...(homeRecent.length < 5 ? [`Only ${homeRecent.length} completed recent matches could be retrieved for ${homeName} from the available providers.`] : []),
+      ...(awayRecent.length < 5 ? [`Only ${awayRecent.length} completed recent matches could be retrieved for ${awayName} from the available providers.`] : []),
+    ];
+    const sources = ["GOAL API"];
+    if (apiFallback.homeRecent.length || apiFallback.awayRecent.length) sources.push("API-Football");
+    if (dataFallback.homeRecent.length || dataFallback.awayRecent.length) sources.push("Football-Data.org");
+
+    return NextResponse.json({
+      ...goalData,
+      homeRecent,
+      awayRecent,
+      headToHead,
+      warnings,
+      source: sources.join(" + "),
+      formNotice: "Recent form combines verified completed results from GOAL API, API-Football and Football-Data.org when available. No unrelated teams or unfinished matches are included. Head-to-head meetings are listed separately.",
+    });
   }
 
   return NextResponse.json(goalData);
