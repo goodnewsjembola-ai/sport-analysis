@@ -321,14 +321,27 @@ export default function Home() {
                             </div>
                           </div>
                           <div className="prediction-details">
-                            <div><small>Predicted winner</small><strong>{winner.name || "No clear favourite"}</strong>{winner.comment && <span>{winner.comment}</span>}</div>
-                            <div>
-                              <small>TEAM GOALS · HOME / AWAY</small>
-                              <strong>{homeGoals ? `Home team: ${homeGoals}` : "Home team: Not available"}</strong>
-                              <span>{awayGoals ? `Away team: ${awayGoals}` : "Away team: Not available"}</span>
-                            </div>
-                            <div><small>Goals market</small><strong>{goalsMarket || "Not available"}</strong><span>Provider estimate</span></div>
+                            <div className="prediction-detail-card"><small>Predicted winner</small><strong>{winner.name || "No clear favourite"}</strong>{winner.comment && <span>{winner.comment}</span>}</div>
+                            <div className="prediction-detail-card"><small>Goals market</small><strong>{goalsMarket || "Not available"}</strong><span>Provider estimate</span></div>
                           </div>
+                          <section className="team-goals-section" aria-label="Team goals estimates">
+                            <div className="team-goals-heading">
+                              <div><span className="goals-heading-mark">02</span><div><small>GOALS BREAKDOWN</small><h4>Team goals <em>estimates.</em></h4></div></div>
+                              <span className="provider-estimate-label">PROVIDER DATA</span>
+                            </div>
+                            <div className="team-goals-grid">
+                              <div className="team-goal-tile">
+                                <span className="team-goal-side"><i className="team-goal-dot home-dot" /> HOME TEAM</span>
+                                <strong>{homeGoals || "Not available"}</strong>
+                                <span className="team-goal-caption">Home scoring estimate</span>
+                              </div>
+                              <div className="team-goal-tile">
+                                <span className="team-goal-side"><i className="team-goal-dot away-dot" /> AWAY TEAM</span>
+                                <strong>{awayGoals || "Not available"}</strong>
+                                <span className="team-goal-caption">Away scoring estimate</span>
+                              </div>
+                            </div>
+                          </section>
                           {prediction.advice && <p className="prediction-advice"><b>Provider advice:</b> {prediction.advice}</p>}
                           <p className="prediction-disclaimer">These are third-party statistical estimates, not guaranteed results. Availability and detail depend on the provider's data for this match.</p>
                         </div>
