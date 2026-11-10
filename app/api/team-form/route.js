@@ -29,6 +29,7 @@ function normalize(value) {
     .replace(/\bman\s*u\b/g, "manchester united")
     .replace(/\bmanu\b/g, "manchester united")
     .replace(/\butd\b/g, "united")
+    .replace(/\bman united\b/g, "manchester united")
     .replace(/\b(fc|cf|afc|club|football club|town)\b/g, "")
     .replace(/[^a-z0-9]/g, "");
 }
