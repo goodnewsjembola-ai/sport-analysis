@@ -2,18 +2,41 @@ import { NextResponse } from "next/server";
 
 export const revalidate = 3600;
 
-async function fetchFixtures(url, apiKey) {
-  const response = await fetch(url, {
-    headers: { "x-apisports-key": apiKey },
-    next: { revalidate: 3600 },
-  });
-  const data = await response.json();
+async function fetchFixtures(url, apiKey, label) {
+  try {
+    const response = await fetch(url, {
+      headers: { "x-apisports-key": apiKey },
+      next: { revalidate: 3600 },
+    });
 
-  if (!response.ok || (data.errors && Object.keys(data.errors).length > 0)) {
-    throw new Error("The football data provider could not return recent results.");
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      return { fixtures: [], error: `${label}: provider returned an unreadable response (HTTP ${response.status}).` };
+    }
+
+    const providerErrors = data.errors && Object.keys(data.errors).length > 0
+      ? Object.values(data.errors).map((value) => String(value)).join("; ")
+      : "";
+
+    if (!response.ok || providerErrors) {
+      console.error("API-Football team-form request failed:", {
+        label,
+        status: response.status,
+        errors: data.errors,
+      });
+      return {
+        fixtures: [],
+        error: `${label}: ${providerErrors || `HTTP ${response.status}`}`,
+      };
+    }
+
+    return { fixtures: data.response ?? [], error: null };
+  } catch (error) {
+    console.error("API-Football team-form network error:", label, error);
+    return { fixtures: [], error: `${label}: provider connection failed.` };
   }
-
-  return data.response ?? [];
 }
 
 export async function GET(request) {
@@ -53,23 +76,31 @@ export async function GET(request) {
   h2hUrl.searchParams.set("last", "5");
   h2hUrl.searchParams.set("timezone", "Africa/Lagos");
 
-  try {
-    const [homeRecent, awayRecent, headToHead] = await Promise.all([
-      fetchFixtures(homeUrl, apiKey),
-      fetchFixtures(awayUrl, apiKey),
-      fetchFixtures(h2hUrl, apiKey),
-    ]);
+  const [homeResult, awayResult, h2hResult] = await Promise.all([
+    fetchFixtures(homeUrl, apiKey, "Home recent form"),
+    fetchFixtures(awayUrl, apiKey, "Away recent form"),
+    fetchFixtures(h2hUrl, apiKey, "Head-to-head history"),
+  ]);
 
-    return NextResponse.json({
-      homeRecent,
-      awayRecent,
-      headToHead,
-      timezone: "Africa/Lagos",
-    });
-  } catch (error) {
+  const errors = [homeResult.error, awayResult.error, h2hResult.error].filter(Boolean);
+  const hasAnyData = homeResult.fixtures.length || awayResult.fixtures.length || h2hResult.fixtures.length;
+
+  if (!hasAnyData && errors.length) {
     return NextResponse.json(
-      { error: error.message || "Unable to load recent team results." },
+      {
+        error: "API-Football could not provide recent results for this match.",
+        details: errors,
+        code: "RECENT_FORM_UNAVAILABLE",
+      },
       { status: 502 }
     );
   }
+
+  return NextResponse.json({
+    homeRecent: homeResult.fixtures,
+    awayRecent: awayResult.fixtures,
+    headToHead: h2hResult.fixtures,
+    warnings: errors,
+    timezone: "Africa/Lagos",
+  });
 }
