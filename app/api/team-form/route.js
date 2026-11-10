@@ -107,7 +107,7 @@ async function getApiFootballForm(homeName, awayName) {
     Promise.all(seasons.map((season) =>
       apiFootball(`/fixtures?team=${awayId}&season=${season}&from=${from}&to=${to}`, key)
     )),
-    apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}&from=${from}&to=${to}`, key),
+    apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}`, key),
   ]);
 
   const homeRecent = homeRequest.status === "fulfilled" ? sortApiFootballRecent(homeRequest.value.flat()) : [];
@@ -398,7 +398,7 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   const asArray = (value) => Array.isArray(value) ? value
     : value?.matches || value?.results || value?.items || value?.fixtures || value?.data || [];
   const recentCutoff = Math.floor((Date.now() - 365 * 86400000) / 1000);
-  const completed = (items) => asArray(items)
+  const completed = (items, includeOlderMeetings = false) => asArray(items)
     .filter((match) => {
       const rawStatus = match.matchStatus || match.match_status || match.status?.short || match.status || match.fixture?.status?.short || "";
       const status = String(typeof rawStatus === "object" ? rawStatus.name || rawStatus.type || "" : rawStatus).toUpperCase();
@@ -410,7 +410,7 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
     })
     .map(goalFixtureToStandard)
     .filter((match) => Number.isFinite(match.goals.home) && Number.isFinite(match.goals.away)
-      && match.fixture.timestamp >= recentCutoff)
+      && (includeOlderMeetings || match.fixture.timestamp >= recentCutoff))
     .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp).slice(0, 5);
   const attachFixtureTeamId = (matches, targetTeam, fixtureTeamId) => matches.map((match) => {
     // Match on GOAL's stable team ID first. Club display names can vary
@@ -427,7 +427,7 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   });
   const homeRecent = attachFixtureTeamId(completed(homeBody), homeTeam, homeApiId);
   const awayRecent = attachFixtureTeamId(completed(awayBody), awayTeam, awayApiId);
-  const headToHead = completed(h2hBody);
+  const headToHead = completed(h2hBody, true);
   if (!homeRecent.length && !awayRecent.length && !headToHead.length) {
     throw new Error(requestWarnings.join(" ") || "GOAL API returned no completed results for either team.");
   }
