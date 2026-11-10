@@ -933,20 +933,21 @@ export async function GET(request) {
 
   const homeRecent = mergeRecentMatches(
     mergeRecentMatches(
-      mergeRecentMatches(goalData.homeRecent || [], dataFallback.homeRecent || []),
+      mergeRecentMatches(mergeRecentMatches(goalData.homeRecent || [], leagueHistory.homeRecent || []), dataFallback.homeRecent || []),
       espnFallback.homeRecent || []
     ),
     ninjasFallback.homeRecent || []
   );
   const awayRecent = mergeRecentMatches(
     mergeRecentMatches(
-      mergeRecentMatches(goalData.awayRecent || [], dataFallback.awayRecent || []),
+      mergeRecentMatches(mergeRecentMatches(goalData.awayRecent || [], leagueHistory.awayRecent || []), dataFallback.awayRecent || []),
       espnFallback.awayRecent || []
     ),
     ninjasFallback.awayRecent || []
   );
   let headToHead = mergeH2HMatches(
     goalData.headToHead || [],
+    leagueHistory.headToHead || [],
     dataFallback.headToHead || [],
     espnFallback.headToHead || [],
     ninjasFallback.headToHead || []
