@@ -28,7 +28,63 @@ function normalize(value) {
 }
 
 
-const NPFL_ID = "cmr77dxdp00urrx06pmkuqz1e";
+
+const API_FOOTBALL_INTERNATIONAL = [
+  "nations league", "uefa nations league", "concacaf nations league",
+  "africa cup of nations", "afcon", "copa america", "fifa world cup",
+  "world cup", "european championship", "uefa euro", "asian cup",
+  "afc asian cup", "concacaf gold cup", "gold cup", "oceania nations cup",
+  "arab cup", "olympics", "international friendly", "friendlies",
+];
+
+async function apiFootball(path, key) {
+  const response = await fetch(`https://v3.football.api-sports.io${path}`, {
+    headers: { "x-apisports-key": key },
+    next: { revalidate: 1800 },
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || (body.errors && Object.keys(body.errors).length)) {
+    const detail = body?.errors ? JSON.stringify(body.errors) : `HTTP ${response.status}`;
+    throw new Error(`API-Football request failed: ${detail}`);
+  }
+  return body.response || [];
+}
+
+function sortApiFootballRecent(items) {
+  return (items || [])
+    .filter((match) => match.fixture?.status?.short === "FT"
+      && match.goals?.home !== null && match.goals?.away !== null)
+    .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
+    .slice(0, 5);
+}
+
+async function getApiFootballForm(homeId, awayId) {
+  const key = process.env.API_FOOTBALL_KEY;
+  if (!key) throw new Error("API_FOOTBALL_KEY is missing from the server environment.");
+  if (!/^\\d+$/.test(String(homeId || "")) || !/^\\d+$/.test(String(awayId || ""))) {
+    throw new Error("The fixture did not include valid API-Football team IDs for recent-form lookup.");
+  }
+
+  const [homeData, awayData, h2hData] = await Promise.all([
+    apiFootball(`/fixtures?team=${homeId}&last=10&status=FT`, key),
+    apiFootball(`/fixtures?team=${awayId}&last=10&status=FT`, key),
+    apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}&last=10`, key),
+  ]);
+
+  const homeRecent = sortApiFootballRecent(homeData);
+  const awayRecent = sortApiFootballRecent(awayData);
+  const headToHead = sortApiFootballRecent(h2hData);
+
+  return {
+    homeRecent,
+    awayRecent,
+    headToHead,
+    warnings: [],
+    formNotice: "Recent form uses each team's latest completed matches across competitions from API-Football. Head-to-head meetings are listed separately. Availability depends on the competition and API plan.",
+    source: "API-Football",
+  };
+}
+\nconst NPFL_ID = "cmr77dxdp00urrx06pmkuqz1e";
 
 async function goalApi(path, key) {
   const response = await fetch(`https://api.goal-api.com/v1${path}`, {
@@ -198,6 +254,8 @@ export async function GET(request) {
   const homeName = (params.get("homeName") || "").trim();
   const awayName = (params.get("awayName") || "").trim();
   const leagueName = (params.get("league") || "").trim();
+  const homeId = (params.get("homeId") || "").trim();
+  const awayId = (params.get("awayId") || "").trim();
 
   if (!homeName || !awayName || !leagueName) {
     return NextResponse.json({ error: "Team names and competition are required for recent form." }, { status: 400 });
@@ -217,19 +275,42 @@ export async function GET(request) {
     }
   }
 
+
+  const isInternationalCompetition = API_FOOTBALL_INTERNATIONAL.some((name) =>
+    normalize(leagueName).includes(normalize(name))
+  );
+
+  if (isInternationalCompetition) {
+    try {
+      const data = await getApiFootballForm(homeId, awayId);
+      return NextResponse.json(data);
+    } catch (error) {
+      console.error("API-Football international recent-form request failed:", error);
+      return NextResponse.json({
+        homeRecent: [], awayRecent: [], headToHead: [],
+        warnings: [error.message || "API-Football could not return international recent form."],
+        formNotice: "International recent form could not be retrieved. No older-season or unrelated results are substituted.",
+        source: "API-Football",
+      });
+    }
+  }
+
   const competition = COMPETITIONS.find((item) =>
     item.names.some((name) => normalize(leagueName).includes(normalize(name)) || normalize(name).includes(normalize(leagueName)))
   );
 
   if (!competition) {
-    return NextResponse.json({
-      homeRecent: [],
-      awayRecent: [],
-      headToHead: [],
-      warnings: [`Recent form is not available from the connected provider for ${leagueName}.`],
-      formNotice: "Current recent form is supplied by Football-Data.org where the competition and both teams are covered. No older-season results are substituted.",
-      source: "Football-Data.org",
-    });
+    try {
+      const data = await getApiFootballForm(homeId, awayId);
+      return NextResponse.json(data);
+    } catch (error) {
+      return NextResponse.json({
+        homeRecent: [], awayRecent: [], headToHead: [],
+        warnings: [`Recent form is not available from Football-Data.org for ${leagueName}, and API-Football fallback failed: ${error.message || "provider error"}`],
+        formNotice: "No older-season or unrelated results are substituted when current recent form is unavailable.",
+        source: "API-Football fallback",
+      });
+    }
   }
 
   try {
