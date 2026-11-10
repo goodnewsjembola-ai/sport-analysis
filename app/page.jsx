@@ -4,6 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 
 const markets = ["All markets", "Match result", "Goals", "BTTS", "Corners", "Cards", "Correct score"];
 
+function getLagosToday() {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return values.year + "-" + values.month + "-" + values.day;
+}
+
 function formatKickoff(value) {
   if (!value) return "Kick-off time unavailable";
 
@@ -147,6 +153,8 @@ export default function Home() {
   const [loadingFixtures, setLoadingFixtures] = useState(true);
   const [fixturesError, setFixturesError] = useState("");
   const [fixtureDate, setFixtureDate] = useState("");
+  const [selectedDate, setSelectedDate] = useState(() => getLagosToday());
+  const [selectedLeague, setSelectedLeague] = useState("All leagues");
   const [openAnalysis, setOpenAnalysis] = useState(null);
   const [analysisByFixture, setAnalysisByFixture] = useState({});
   const [analysisLoading, setAnalysisLoading] = useState(null);
@@ -163,7 +171,7 @@ export default function Home() {
       setFixturesError("");
 
       try {
-        const response = await fetch("/api/fixtures");
+        const response = await fetch("/api/fixtures?date=" + encodeURIComponent(selectedDate));
         const data = await response.json();
 
         if (!response.ok) {
@@ -172,23 +180,23 @@ export default function Home() {
 
         if (!cancelled) {
           setFixtures(Array.isArray(data.fixtures) ? data.fixtures : []);
-          setFixtureDate(data.date || "");
+          setFixtureDate(data.date || selectedDate);
+          setOpenAnalysis(null);
         }
       } catch (error) {
         if (!cancelled) {
           setFixturesError(error.message || "Unable to load fixtures.");
+          setFixtures([]);
         }
       } finally {
         if (!cancelled) setLoadingFixtures(false);
       }
     }
 
-    loadFixtures();
+    if (selectedDate) loadFixtures();
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    return () => { cancelled = true; };
+  }, [selectedDate]);
 
   async function toggleAnalysis(fixtureId, force = false, homeId = null, awayId = null, season = null, homeName = "", awayName = "", leagueName = "") {
     if (!fixtureId) return;
@@ -254,18 +262,40 @@ export default function Home() {
     }
   }
 
+  const availableLeagues = useMemo(() => {
+    const names = fixtures.map((fixture) => {
+      const name = fixture.league?.name || "Other competitions";
+      const country = fixture.league?.country || "";
+      return country ? name + " · " + country : name;
+    });
+    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  }, [fixtures]);
+
   const visibleFixtures = useMemo(() => {
     const term = search.trim().toLowerCase();
-
     return fixtures.filter((fixture) => {
       const home = fixture.teams?.home?.name || "";
       const away = fixture.teams?.away?.name || "";
-      const league = fixture.league?.name || "";
+      const league = fixture.league?.name || "Other competitions";
       const country = fixture.league?.country || "";
-
-      return `${home} ${away} ${league} ${country}`.toLowerCase().includes(term);
+      const leagueLabel = country ? league + " · " + country : league;
+      const matchesSearch = (home + ' ' + away + ' ' + league + ' ' + country).toLowerCase().includes(term);
+      const matchesLeague = selectedLeague === "All leagues" || leagueLabel === selectedLeague;
+      return matchesSearch && matchesLeague;
     });
-  }, [fixtures, search]);
+  }, [fixtures, search, selectedLeague]);
+
+  const groupedFixtures = useMemo(() => {
+    const groups = new Map();
+    visibleFixtures.forEach((fixture) => {
+      const name = fixture.league?.name || "Other competitions";
+      const country = fixture.league?.country || "";
+      const label = country ? name + " · " + country : name;
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(fixture);
+    });
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [visibleFixtures]);
 
   return (
     <main>
@@ -329,6 +359,20 @@ export default function Home() {
           <span className="section-date">{fixtureDate ? `FIXTURES · ${fixtureDate}` : "FIXTURES & ANALYSIS"}</span>
         </div>
 
+        <div className="fixture-controls">
+          <label className="fixture-control">
+            <span>CHOOSE DATE</span>
+            <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} aria-label="Choose fixture date" />
+          </label>
+          <label className="fixture-control">
+            <span>CHOOSE LEAGUE</span>
+            <select value={selectedLeague} onChange={(event) => setSelectedLeague(event.target.value)} aria-label="Filter fixtures by league">
+              <option value="All leagues">All leagues</option>
+              {availableLeagues.map((league) => <option key={league} value={league}>{league}</option>)}
+            </select>
+          </label>
+        </div>
+
         <div className="match-toolbar">
           <div className="market-tabs" id="markets">
             {markets.map((market) => (
@@ -350,7 +394,13 @@ export default function Home() {
             </div>
           )}
 
-          {!loadingFixtures && !fixturesError && visibleFixtures.map((fixture) => {
+          {!loadingFixtures && !fixturesError && groupedFixtures.map(([leagueGroup, leagueFixtures]) => (
+            <section className="league-group" key={leagueGroup}>
+              <div className="league-group-heading">
+                <h3>{leagueGroup}</h3>
+                <span>{leagueFixtures.length} {leagueFixtures.length === 1 ? "MATCH" : "MATCHES"}</span>
+              </div>
+              {leagueFixtures.map((fixture) => {
             const score = getScore(fixture);
             const fixtureId = fixture.fixture?.id;
             const homeTeamId = fixture.teams?.home?.id;
@@ -562,12 +612,14 @@ export default function Home() {
               </article>
             );
           })}
+            </section>
+          ))}
 
           {!loadingFixtures && !fixturesError && visibleFixtures.length === 0 && (
             <p className="empty-state">
               {fixtures.length === 0
-                ? "No fixtures were returned for today. Try another date when date selection is added."
-                : "No fixtures match that search."}
+                ? 'No fixtures were found for ' + selectedDate + '. Choose another date to see that day’s matches.'
+                : "No matches match your search or selected league. Try clearing the search or choosing All leagues."}
             </p>
           )}
         </div>
