@@ -245,7 +245,7 @@ function goalFixtureToStandard(match) {
   };
 }
 
-async function getGoalApiForm(homeName, awayName) {
+async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   const key = process.env.GOAL_API_KEY;
   if (!key) throw new Error("GOAL_API_KEY is missing from the server environment.");
   const [homeTeam, awayTeam] = await Promise.all([findGoalTeamByName(homeName, key), findGoalTeamByName(awayName, key)]);
@@ -263,7 +263,14 @@ async function getGoalApiForm(homeName, awayName) {
     .map(goalFixtureToStandard)
     .filter((match) => Number.isFinite(match.goals.home) && Number.isFinite(match.goals.away))
     .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp).slice(0, 5);
-  const homeRecent = completed(homeBody), awayRecent = completed(awayBody), headToHead = completed(h2hBody);
+  const attachFixtureTeamId = (matches, targetTeam, apiTeamId) => matches.map((match) => {
+    if (normalize(match.teams.home.name) === normalize(targetTeam.name)) match.teams.home.id = apiTeamId;
+    else if (normalize(match.teams.away.name) === normalize(targetTeam.name)) match.teams.away.id = apiTeamId;
+    return match;
+  });
+  const homeRecent = attachFixtureTeamId(completed(homeBody), homeTeam, homeApiId);
+  const awayRecent = attachFixtureTeamId(completed(awayBody), awayTeam, awayApiId);
+  const headToHead = completed(h2hBody);
   return { homeRecent, awayRecent, headToHead,
     warnings: [...(!homeRecent.length ? [`GOAL API has no completed recent results for ${homeTeam.name}.`] : []), ...(!awayRecent.length ? [`GOAL API has no completed recent results for ${awayTeam.name}.`] : [])],
     formNotice: "Recent form uses the latest completed results supplied by GOAL API. Head-to-head meetings are listed separately.",
@@ -341,7 +348,7 @@ export async function GET(request) {
 
   // GOAL API is primary for non-NPFL recent form; API-Football remains the fallback.
   try {
-    const goalData = await getGoalApiForm(homeName, awayName);
+    const goalData = await getGoalApiForm(homeName, awayName, homeId, awayId);
     if (goalData.homeRecent.length || goalData.awayRecent.length || goalData.headToHead.length) return NextResponse.json(goalData);
     throw new Error(goalData.warnings.join(" ") || "GOAL API returned no completed results.");
   } catch (goalError) {
