@@ -227,3 +227,156 @@ footer{padding:35px 9%;border-top:1px solid var(--line);display:flex;align-items
   .fixture-control>span{font-size:8px}
   .fixture-control input[type="date"],.fixture-control select{font-size:11px;padding:8px 6px}
 }
+
+
+/* G SPORT ANALYSIS — refreshed match-centre design */
+:root{
+  --black:#07111f;
+  --panel:#0d1b2d;
+  --panel2:#12243a;
+  --gold:#39d6c5;
+  --gold-light:#a4fff1;
+  --green:#7de0b4;
+  --muted:#9eb0c4;
+  --white:#f2f7fc;
+  --line:rgba(104,224,218,.18);
+}
+body{
+  background:
+    radial-gradient(ellipse at 8% 0%,rgba(28,91,119,.22),transparent 36%),
+    radial-gradient(ellipse at 92% 25%,rgba(31,111,111,.13),transparent 32%),
+    #07111f;
+  color:var(--white);
+}
+.announcement{background:#091827;color:#b5d2d9;border-bottom:1px solid rgba(89,215,207,.12)}
+.site-header{
+  position:sticky;top:0;z-index:30;height:76px;
+  background:rgba(7,17,31,.92);backdrop-filter:blur(18px);
+  border-bottom:1px solid rgba(154,216,224,.12);
+}
+.brand-mark{border-radius:10px;background:linear-gradient(145deg,#123b49,#0d2437);border-color:rgba(57,214,197,.65);color:var(--gold-light)}
+.brand-name{font-weight:700;letter-spacing:2.2px}
+nav a.active,nav a:hover{color:var(--gold-light)}
+.header-cta{border-radius:9px;border-color:rgba(57,214,197,.35);background:rgba(57,214,197,.06);color:var(--gold-light)}
+.hero{
+  min-height:540px;
+  background:
+    radial-gradient(ellipse at 78% 46%,rgba(21,115,123,.24),transparent 43%),
+    linear-gradient(115deg,#081525 0%,#0a1b2c 58%,#0b202b 100%);
+}
+.hero h1,.section-heading h2,.method-section h2{letter-spacing:-2.5px}
+.hero h1 em,.section-heading h2 em,.method-section h2 em{color:var(--gold-light)}
+.eyebrow{color:var(--gold-light)}
+.gold-button{
+  border-radius:9px;background:linear-gradient(135deg,#43e1cf,#9bf3d8);
+  color:#05202a;box-shadow:0 10px 30px rgba(57,214,197,.14);
+}
+.gold-button:hover{background:#b5fff0;transform:translateY(-1px)}
+.text-button{color:#d3e3ed}
+.hero-art .pitch{border-color:#54cdbb88;background:linear-gradient(90deg,#103d3b,#102c32);box-shadow:0 0 90px rgba(57,214,197,.11)}
+.pitch:before,.pitch:after,.center-line,.center-circle{border-color:#54cdbb88}
+.pitch-dot{background:#a4fff1;box-shadow:0 0 22px #39d6c5}
+.orbit{border-color:#39d6c52c}.orbit-two{border-color:#39d6c51a}
+.floating-stat{border-radius:12px;background:rgba(14,34,51,.94);border-color:var(--line)}
+.floating-stat strong{color:var(--gold-light)}
+.trust-strip{background:#0a1929;border-color:var(--line)}
+.trust-strip strong{color:var(--gold-light)}
+.matches-section,.markets-section{padding-top:78px;padding-bottom:78px}
+.section-heading h2{font-size:clamp(38px,4vw,52px)}
+.section-date{color:#8fa8ba}
+.fixture-controls{
+  display:grid!important;grid-template-columns:repeat(2,minmax(190px,250px));
+  gap:14px;width:100%;padding:17px;margin:0 0 20px;
+  background:linear-gradient(135deg,rgba(15,37,56,.96),rgba(10,28,44,.96));
+  border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 38px rgba(0,0,0,.14);
+}
+.fixture-control{min-width:0;width:100%}
+.fixture-control>span{color:var(--gold-light);font-size:9px;font-weight:700}
+.fixture-control input[type="date"],.fixture-control select{
+  width:100%;min-height:44px;border-radius:8px;background:#081827;
+  color:#effaff;border:1px solid rgba(142,195,211,.22);padding:11px 12px;
+  color-scheme:dark;font-size:12px;
+}
+.fixture-control input:focus,.fixture-control select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(57,214,197,.1)}
+.match-toolbar input{border-radius:9px;background:#0d1d30;border-color:rgba(142,195,211,.2);color:#effaff}
+.market-tabs button{border-radius:8px;border-color:rgba(142,195,211,.2);color:#b8c8d8}
+.market-tabs button.selected,.market-tabs button:hover{background:var(--gold);color:#05202a;border-color:var(--gold)}
+.match-card{
+  border-radius:13px;padding:19px 20px;
+  background:linear-gradient(135deg,#10243a,#0c1b2d);
+  border:1px solid rgba(142,195,211,.13);
+  box-shadow:0 8px 25px rgba(0,0,0,.12);
+  transition:border-color .2s,transform .2s;
+}
+.match-card:hover{border-color:rgba(57,214,197,.42);transform:translateY(-1px)}
+.league-label{color:#a9bfd0}
+.league-icon{color:var(--gold)}
+.teams{color:#f3f8fc;font-size:13px}
+.versus{color:var(--gold-light)}
+.match-time,.match-status{color:#9bb1c3}
+.analysis-button{
+  border-radius:8px;border:1px solid rgba(57,214,197,.38);
+  background:rgba(57,214,197,.07);color:var(--gold-light);
+  padding:11px 14px;font-weight:700;cursor:pointer;
+}
+.analysis-button:hover{background:var(--gold);color:#05202a}
+.league-group-heading{border-color:var(--line)}
+.league-group-heading h3{color:var(--gold-light)}
+.prediction-panel{
+  border-radius:12px;background:#081827;border:1px solid var(--line);
+  padding:22px;box-shadow:inset 0 1px 0 rgba(255,255,255,.025);
+}
+.prediction-kicker,.prediction-stat strong,.team-goal-tile strong{color:var(--gold-light)}
+.prediction-stat{border-radius:9px;background:#10243a;border:1px solid rgba(142,195,211,.1)}
+.prediction-details>div{border-radius:9px;background:#0d1e30;border-color:rgba(142,195,211,.13)}
+.prediction-details strong{color:#f0f7fc}
+.probability-chart,.confidence-card,.team-goals-section,.form-section{
+  border-radius:11px;background:#0e2033;border-color:rgba(142,195,211,.14);
+}
+.probability-track{background:#1b3043}
+.probability-fill{background:var(--gold)}
+.probability-home{background:#39d6c5}.probability-draw{background:#d8b76b}.probability-away{background:#7de0b4}
+.confidence-meter{background:#1b3043}
+.confidence-meter span{background:linear-gradient(90deg,#39d6c5,#a4fff1)}
+.team-goal-tile,.form-team-card,.h2h-block{border-radius:9px;background:#091a2a;border-color:rgba(142,195,211,.13)}
+.team-goal-side,.form-section-heading small{color:#a9bfd0}
+.form-team-card h5{color:var(--gold-light)}
+.form-opponent{color:#d0dfeb}
+.form-opponent small,.h2h-row>span,.h2h-row>small{color:#91a8bb}
+.form-result-row>strong,.h2h-row>strong{color:#e6f0f7}
+.h2h-row{border-color:rgba(142,195,211,.12)}
+.form-result-badge{border-radius:6px}
+.result-w{background:#153e3a;color:#8df0c8}
+.result-d{background:#423b26;color:#f2d88d}
+.result-l{background:#452c36;color:#ffb0b8}
+.prediction-advice{border-radius:8px;background:#10243a;color:#dceaf2}
+.prediction-disclaimer,.prediction-message,.form-message{color:#9bb1c3}
+.prediction-error{color:#ffb5ae}
+.markets-section{background:#091827;border-color:var(--line)}
+.market-card{border-radius:12px;background:linear-gradient(145deg,#10243a,#0c1b2d);border-color:rgba(142,195,211,.12)}
+.market-card>span,.market-card>b{color:var(--gold-light)}
+.market-card h3{color:#f2f7fc}
+.method-section{background:radial-gradient(ellipse at 20% 90%,rgba(24,100,102,.2),transparent 50%)}
+.method-points span{border-color:var(--line);color:#d7e7f0}
+footer{border-color:var(--line)}
+footer .brand-mark{border-radius:9px}
+footer>p,footer small,footer .footer-note{color:#8da4b7}
+button,input,select{accent-color:var(--gold)}
+.empty-state{padding:20px;border:1px dashed rgba(142,195,211,.22);border-radius:10px;background:rgba(13,29,48,.55);color:#b2c6d5}
+@media(max-width:900px){
+  .site-header{height:auto;min-height:76px}
+  .match-card{grid-template-columns:1fr 1.5fr 1fr}
+}
+@media(max-width:620px){
+  .site-header{position:relative}
+  .hero{min-height:0}
+  .hero h1{font-size:clamp(48px,14vw,62px)}
+  .fixture-controls{grid-template-columns:1fr 1fr!important;padding:12px;gap:9px}
+  .fixture-control input[type="date"],.fixture-control select{font-size:10px;padding:9px 7px}
+  .match-card{grid-template-columns:1fr 1fr;gap:11px;padding:15px}
+  .teams{grid-column:1/-1;grid-row:2;justify-content:space-between}
+  .league-label{grid-column:1/-1}
+  .match-time{grid-column:1}
+  .analysis-button{grid-column:2;grid-row:4;justify-self:end}
+  .prediction-panel{padding:13px}
+}
