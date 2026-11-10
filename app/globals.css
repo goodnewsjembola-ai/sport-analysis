@@ -104,3 +104,21 @@ footer{padding:35px 9%;border-top:1px solid var(--line);display:flex;align-items
 .confidence-low .confidence-meter span{background:#d69a83}
 .confidence-card p{margin:10px 0 0;color:#929b8e;font-size:9px;line-height:1.65}
 @media(max-width:620px){.confidence-card{padding:13px}.confidence-topline strong{font-size:16px}}
+
+
+/* Visual 1X2 probability comparison */
+.probability-chart{margin-top:10px;padding:17px 18px;background:#111713;border:1px solid #ffffff12}
+.probability-chart-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:17px}
+.probability-chart-heading small{display:block;color:#8e998b;font-size:8px;letter-spacing:1.5px;margin-bottom:5px}
+.probability-chart-heading strong{font-family:'Playfair Display',serif;font-size:18px;font-weight:500;color:var(--white)}
+.probability-chart-heading>span{font-size:7px;letter-spacing:1.2px;color:#aab79f;border:1px solid #7b9b6840;padding:7px 9px}
+.probability-row+.probability-row{margin-top:13px}
+.probability-label{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;font-size:10px;color:#c4c9bf}
+.probability-label strong{font-size:11px;color:var(--gold-light);font-weight:600;font-variant-numeric:tabular-nums}
+.probability-track{height:8px;background:#ffffff12;border-radius:20px;overflow:hidden}
+.probability-fill{display:block;height:100%;border-radius:20px;min-width:0;transition:width .35s ease}
+.probability-home{background:linear-gradient(90deg,#94713a,var(--gold-light))}
+.probability-draw{background:linear-gradient(90deg,#627d55,#9fbd8c)}
+.probability-away{background:linear-gradient(90deg,#526b83,#8eabc8)}
+.probability-chart>p{margin:14px 0 0;color:#828d80;font-size:8px;line-height:1.6}
+@media(max-width:620px){.probability-chart{padding:14px}.probability-chart-heading strong{font-size:16px}}
