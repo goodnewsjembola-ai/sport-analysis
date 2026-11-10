@@ -66,6 +66,21 @@ function formatProviderLine(value) {
   return text;
 }
 
+function explainProviderLine(value) {
+  if (!value) return "No explanation available";
+
+  const match = String(value).match(/^(Under|Over)\s+(\d+(?:\.\d+)?)$/i);
+  if (!match) return "Provider estimate";
+
+  const direction = match[1].toLowerCase();
+  const line = Number(match[2]);
+  const minimumWholeGoals = Math.floor(line) + 1;
+
+  return direction === "under"
+    ? `Fewer than ${minimumWholeGoals} goals`
+    : `${minimumWholeGoals} or more goals`;
+}
+
 export default function Home() {
   const [activeMarket, setActiveMarket] = useState("All markets");
   const [search, setSearch] = useState("");
@@ -334,11 +349,13 @@ export default function Home() {
                                 <span className="team-goal-side"><i className="team-goal-dot home-dot" /> HOME TEAM</span>
                                 <strong>{homeGoals || "Not available"}</strong>
                                 <span className="team-goal-caption">Home scoring estimate</span>
+                                <span className="team-goal-explanation">{explainProviderLine(homeGoals)}</span>
                               </div>
                               <div className="team-goal-tile">
                                 <span className="team-goal-side"><i className="team-goal-dot away-dot" /> AWAY TEAM</span>
                                 <strong>{awayGoals || "Not available"}</strong>
                                 <span className="team-goal-caption">Away scoring estimate</span>
+                                <span className="team-goal-explanation">{explainProviderLine(awayGoals)}</span>
                               </div>
                             </div>
                           </section>
