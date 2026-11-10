@@ -146,7 +146,7 @@ async function getNpFlForm(homeName, awayName) {
     teamsMatched: { home: homeTeam.name, away: awayTeam.name },
   };
 }
-\nasync function footballData(path, token) {
+async function footballData(path, token) {
   const response = await fetch(`https://api.football-data.org/v4${path}`, {
     headers: { "X-Auth-Token": token },
     next: { revalidate: 1800 },
