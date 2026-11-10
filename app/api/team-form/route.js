@@ -277,93 +277,21 @@ export async function GET(request) {
   }
 
 
-  const isInternationalCompetition = API_FOOTBALL_INTERNATIONAL.some((name) =>
-    normalize(leagueName).includes(normalize(name))
-  );
-
-  if (isInternationalCompetition) {
-    try {
-      const data = await getApiFootballForm(homeId, awayId);
-      return NextResponse.json(data);
-    } catch (error) {
-      console.error("API-Football international recent-form request failed:", error);
-      return NextResponse.json({
-        homeRecent: [], awayRecent: [], headToHead: [],
-        warnings: [error.message || "API-Football could not return international recent form."],
-        formNotice: "International recent form could not be retrieved. No older-season or unrelated results are substituted.",
-        source: "API-Football",
-      });
-    }
-  }
-
-  const competition = COMPETITIONS.find((item) =>
-    item.names.some((name) => normalize(leagueName).includes(normalize(name)) || normalize(name).includes(normalize(leagueName)))
-  );
-
-  if (!competition) {
-    try {
-      const data = await getApiFootballForm(homeId, awayId);
-      return NextResponse.json(data);
-    } catch (error) {
-      return NextResponse.json({
-        homeRecent: [], awayRecent: [], headToHead: [],
-        warnings: [`Recent form is not available from Football-Data.org for ${leagueName}, and API-Football fallback failed: ${error.message || "provider error"}`],
-        formNotice: "No older-season or unrelated results are substituted when current recent form is unavailable.",
-        source: "API-Football fallback",
-      });
-    }
-  }
-
+  // Use API-Football for every competition except the NPFL, which has its
+  // dedicated GOAL API integration above. This keeps cups and leagues on the
+  // same team-ID based recent-form lookup, including Copa del Rey.
   try {
-    const teamsData = await footballData(`/competitions/${competition.code}/teams`, token);
-    const teams = teamsData.teams || [];
-    const homeTeam = findTeam(teams, homeName);
-    const awayTeam = findTeam(teams, awayName);
-
-    if (!homeTeam || !awayTeam) {
-      return NextResponse.json({
-        homeRecent: [],
-        awayRecent: [],
-        headToHead: [],
-        warnings: [`Could not match both teams to the ${competition.code} team list.`],
-        formNotice: "Current recent form is only shown when both teams can be matched to the provider's competition records. No old data is substituted.",
-        source: "Football-Data.org",
-      });
-    }
-
-    const [homeData, awayData] = await Promise.all([
-      footballData(`/teams/${homeTeam.id}/matches?status=FINISHED&limit=30`, token),
-      footballData(`/teams/${awayTeam.id}/matches?status=FINISHED&limit=30`, token),
-    ]);
-
-    const sortRecent = (items) => (items || [])
-      .filter((match) => match.status === "FINISHED" && match.score?.fullTime?.home !== null && match.score?.fullTime?.away !== null)
-      .sort((a, b) => Date.parse(b.utcDate) - Date.parse(a.utcDate))
-      .slice(0, 5);
-
-    const homeMatches = sortRecent(homeData.matches);
-    const awayMatches = sortRecent(awayData.matches);
-    const awayIds = new Set(awayMatches.map((match) => match.id));
-    const meetings = (homeData.matches || [])
-      .filter((match) => awayIds.has(match.id) && match.status === "FINISHED")
-      .sort((a, b) => Date.parse(b.utcDate) - Date.parse(a.utcDate))
-      .slice(0, 5);
-
-    return NextResponse.json({
-      homeRecent: homeMatches.map(convertMatch),
-      awayRecent: awayMatches.map(convertMatch),
-      headToHead: meetings.map(convertMatch),
-      warnings: [],
-      formNotice: "Recent form uses each team's latest completed matches available from Football-Data.org. Coverage depends on the competition and provider records.",
-      source: "Football-Data.org",
-      teamsMatched: { home: homeTeam.name, away: awayTeam.name },
-    });
+    const data = await getApiFootballForm(homeId, awayId);
+    return NextResponse.json(data);
   } catch (error) {
-    console.error("Football-Data.org recent-form request failed:", error);
+    console.error(`API-Football recent-form request failed for ${leagueName}:`, error);
     return NextResponse.json({
-      error: "Football-Data.org could not return recent form for this match.",
-      details: [error.message || "Provider request failed."],
-      code: "RECENT_FORM_UNAVAILABLE",
-    }, { status: 502 });
+      homeRecent: [], awayRecent: [], headToHead: [],
+      warnings: [error.message || "API-Football could not return recent form."],
+      formNotice: `Recent form for ${leagueName} could not be retrieved. No older-season or unrelated results are substituted.`,
+      source: "API-Football",
+    });
   }
+
+
 }
