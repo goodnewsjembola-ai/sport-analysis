@@ -153,3 +153,15 @@ footer{padding:35px 9%;border-top:1px solid var(--line);display:flex;align-items
 .form-message{font-size:9px;color:#879183;line-height:1.6;margin:10px 0}
 .form-error{color:#e3a19b}
 @media(max-width:620px){.form-section{padding:13px}.form-section-heading h4{font-size:18px}.form-teams-grid{grid-template-columns:1fr}.form-team-card{padding:12px}.h2h-row{grid-template-columns:54px minmax(0,1fr)}.h2h-row>small{grid-column:2}.h2h-row>strong{font-size:8px}}
+
+/* Fixture date and league selectors */
+.fixture-controls{display:flex;gap:12px;align-items:end;margin:0 0 18px;flex-wrap:wrap}
+.fixture-control{display:grid;gap:7px;min-width:210px}
+.fixture-control>span{font-size:8px;letter-spacing:1.5px;color:var(--gold)}
+.fixture-control input,.fixture-control select{width:100%;min-height:40px;background:#111713;border:1px solid #ffffff1a;padding:10px 12px;color:var(--white);font:inherit;font-size:10px;outline:none;color-scheme:dark}
+.fixture-control input:focus,.fixture-control select:focus{border-color:var(--gold)}
+.league-group{display:grid;gap:9px}
+.league-group-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px;padding:0 2px 8px;border-bottom:1px solid var(--line)}
+.league-group-heading h3{margin:0;color:var(--gold-light);font-family:'Playfair Display',serif;font-size:19px;font-weight:500}
+.league-group-heading span{color:#899187;font-size:8px;letter-spacing:1.3px}
+@media(max-width:620px){.fixture-controls{display:grid;grid-template-columns:1fr 1fr;gap:9px}.fixture-control{min-width:0}.fixture-control>span{font-size:7px}.fixture-control input,.fixture-control select{font-size:9px;padding:9px 7px}.league-group-heading h3{font-size:17px}}
