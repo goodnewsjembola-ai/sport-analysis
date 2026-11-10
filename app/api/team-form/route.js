@@ -2,6 +2,23 @@ import { NextResponse } from "next/server";
 
 export const revalidate = 3600;
 
+const FINISHED_STATUSES = new Set(["FT", "AET", "PEN", "AWD", "WO"]);
+
+function dateOnly(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function recentFinishedFixtures(fixtures, limit = 5) {
+  return (Array.isArray(fixtures) ? fixtures : [])
+    .filter((item) => FINISHED_STATUSES.has(item?.fixture?.status?.short))
+    .sort((a, b) => {
+      const aTime = Number(a?.fixture?.timestamp) || Date.parse(a?.fixture?.date) || 0;
+      const bTime = Number(b?.fixture?.timestamp) || Date.parse(b?.fixture?.date) || 0;
+      return bTime - aTime;
+    })
+    .slice(0, limit);
+}
+
 async function fetchFixtures(url, apiKey, label) {
   try {
     const response = await fetch(url, {
@@ -32,7 +49,7 @@ async function fetchFixtures(url, apiKey, label) {
       };
     }
 
-    return { fixtures: data.response ?? [], error: null };
+    return { fixtures: recentFinishedFixtures(data.response), error: null };
   } catch (error) {
     console.error("API-Football team-form network error:", label, error);
     return { fixtures: [], error: `${label}: provider connection failed.` };
@@ -50,35 +67,46 @@ export async function GET(request) {
   const away = params.get("away");
   const season = params.get("season");
 
-  if (!/^\d+$/.test(home || "") || !/^\d+$/.test(away || "") || home === away) {
+  if (!/^\\d+$/.test(home || "") || !/^\\d+$/.test(away || "") || home === away) {
     return NextResponse.json({ error: "Valid home and away team IDs are required." }, { status: 400 });
   }
 
-  if (season && !/^\d{4}$/.test(season)) {
+  if (season && !/^\\d{4}$/.test(season)) {
     return NextResponse.json({ error: "Season must be a four-digit year." }, { status: 400 });
   }
 
-  const base = "https://v3.football.api-sports.io/fixtures";
-  const homeUrl = new URL(base);
-  homeUrl.searchParams.set("team", home);
-  homeUrl.searchParams.set("last", "5");
-  homeUrl.searchParams.set("timezone", "Africa/Lagos");
-  if (season) homeUrl.searchParams.set("season", season);
+  // The API-Football Free plan rejects the "last" parameter.
+  // Use supported date ranges, then select the five newest completed matches.
+  const today = new Date();
+  const teamFrom = new Date(today);
+  teamFrom.setUTCDate(teamFrom.getUTCDate() - 365);
+  const h2hFrom = new Date(today);
+  h2hFrom.setUTCFullYear(h2hFrom.getUTCFullYear() - 5);
 
-  const awayUrl = new URL(base);
-  awayUrl.searchParams.set("team", away);
-  awayUrl.searchParams.set("last", "5");
-  awayUrl.searchParams.set("timezone", "Africa/Lagos");
-  if (season) awayUrl.searchParams.set("season", season);
+  const teamFromDate = dateOnly(teamFrom);
+  const h2hFromDate = dateOnly(h2hFrom);
+  const toDate = dateOnly(today);
+  const base = "https://v3.football.api-sports.io/fixtures";
+
+  function makeTeamUrl(teamId) {
+    const url = new URL(base);
+    url.searchParams.set("team", teamId);
+    url.searchParams.set("from", teamFromDate);
+    url.searchParams.set("to", toDate);
+    url.searchParams.set("timezone", "Africa/Lagos");
+    if (season) url.searchParams.set("season", season);
+    return url;
+  }
 
   const h2hUrl = new URL(`${base}/headtohead`);
   h2hUrl.searchParams.set("h2h", `${home}-${away}`);
-  h2hUrl.searchParams.set("last", "5");
+  h2hUrl.searchParams.set("from", h2hFromDate);
+  h2hUrl.searchParams.set("to", toDate);
   h2hUrl.searchParams.set("timezone", "Africa/Lagos");
 
   const [homeResult, awayResult, h2hResult] = await Promise.all([
-    fetchFixtures(homeUrl, apiKey, "Home recent form"),
-    fetchFixtures(awayUrl, apiKey, "Away recent form"),
+    fetchFixtures(makeTeamUrl(home), apiKey, "Home recent form"),
+    fetchFixtures(makeTeamUrl(away), apiKey, "Away recent form"),
     fetchFixtures(h2hUrl, apiKey, "Head-to-head history"),
   ]);
 
@@ -101,6 +129,11 @@ export async function GET(request) {
     awayRecent: awayResult.fixtures,
     headToHead: h2hResult.fixtures,
     warnings: errors,
+    dateRanges: {
+      teamFormFrom: teamFromDate,
+      headToHeadFrom: h2hFromDate,
+      to: toDate,
+    },
     timezone: "Africa/Lagos",
   });
 }
