@@ -112,11 +112,36 @@ function formatResultDate(value) {
   }).format(date);
 }
 
-function getTeamResult(fixture, teamId) {
-  const homeId = fixture.teams?.home?.id;
-  const isHome = Number(homeId) === Number(teamId);
-  const team = isHome ? fixture.teams?.home : fixture.teams?.away;
-  const opponent = isHome ? fixture.teams?.away : fixture.teams?.home;
+function normalizeFormTeamName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\\bman\\s*u\\b/g, "manchester united")
+    .replace(/\\bmanu\\b/g, "manchester united")
+    .replace(/\\butd\\b/g, "united")
+    .replace(/\\bman united\\b/g, "manchester united")
+    .replace(/\\b(fc|cf|afc|club|football club|town)\\b/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getTeamResult(fixture, teamId, teamName) {
+  const home = fixture.teams?.home || {};
+  const away = fixture.teams?.away || {};
+  const wantedName = normalizeFormTeamName(teamName);
+  const homeName = normalizeFormTeamName(home.name);
+  const awayName = normalizeFormTeamName(away.name);
+  const homeIdMatch = home.id != null && teamId != null && String(home.id) === String(teamId);
+  const awayIdMatch = away.id != null && teamId != null && String(away.id) === String(teamId);
+  const homeNameMatch = wantedName && (homeName === wantedName || homeName.includes(wantedName) || wantedName.includes(homeName));
+  const awayNameMatch = wantedName && (awayName === wantedName || awayName.includes(wantedName) || wantedName.includes(awayName));
+  const isHome = homeNameMatch !== awayNameMatch
+    ? Boolean(homeNameMatch)
+    : homeIdMatch !== awayIdMatch
+      ? Boolean(homeIdMatch)
+      : true;
+  const team = isHome ? home : away;
+  const opponent = isHome ? away : home;
   const teamGoals = isHome ? fixture.goals?.home : fixture.goals?.away;
   const opponentGoals = isHome ? fixture.goals?.away : fixture.goals?.home;
 
@@ -125,7 +150,7 @@ function getTeamResult(fixture, teamId) {
   const result = teamGoals > opponentGoals ? "W" : teamGoals < opponentGoals ? "L" : "D";
   return {
     result,
-    teamName: team?.name || "Team",
+    teamName: team?.name || teamName || "Team",
     opponent: opponent?.name || "Opponent",
     score: `${teamGoals} - ${opponentGoals}`,
     date: formatResultDate(fixture.fixture?.date),
@@ -569,8 +594,8 @@ export default function Home() {
                             {formErrors[fixtureId] && <div className="form-message form-error"><p>{formErrors[fixtureId]}</p>{formErrors[fixtureId].details?.map((detail, index) => <small key={index}>{detail}</small>)}</div>}
                             {formByFixture[fixtureId] && (() => {
                               const form = formByFixture[fixtureId];
-                              const homeResults = (form.homeRecent || []).map((match) => getTeamResult(match, homeTeamId)).filter(Boolean);
-                              const awayResults = (form.awayRecent || []).map((match) => getTeamResult(match, awayTeamId)).filter(Boolean);
+                              const homeResults = (form.homeRecent || []).map((match) => getTeamResult(match, homeTeamId, homeTeamName)).filter(Boolean);
+                              const awayResults = (form.awayRecent || []).map((match) => getTeamResult(match, awayTeamId, awayTeamName)).filter(Boolean);
                               const meetings = (form.headToHead || []).map(getHeadToHeadResult).filter(Boolean);
                               const renderTeamForm = (name, results) => (
                                 <div className="form-team-card">
