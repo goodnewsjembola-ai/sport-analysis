@@ -116,14 +116,16 @@ export async function GET(request) {
       if (!response.ok || (data.errors && Object.keys(data.errors).length > 0)) {
         apiFootballError = data?.errors ? JSON.stringify(data.errors) : `HTTP ${response.status}`;
         console.error("API-Football fixtures request failed:", { status: response.status, errors: data.errors });
-      } else {
+      } else if (Array.isArray(data.response) && data.response.length > 0) {
         return Response.json({
           date,
           timezone: "Africa/Lagos",
-          results: data.results ?? 0,
-          fixtures: data.response ?? [],
+          results: data.results ?? data.response.length,
+          fixtures: data.response,
           source: "API-Football",
         });
+      } else {
+        apiFootballError = "API-Football returned no fixtures for the selected date.";
       }
     } catch (error) {
       apiFootballError = error?.message || "Request failed";
