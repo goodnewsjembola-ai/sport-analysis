@@ -63,12 +63,32 @@ export async function GET(request) {
   }
 
   const params = new URL(request.url).searchParams;
-  const home = params.get("home");
-  const away = params.get("away");
-  const season = params.get("season");
+  const homeRaw = (params.get("home") || "").trim();
+  const awayRaw = (params.get("away") || "").trim();
+  const home = Number(homeRaw);
+  const away = Number(awayRaw);
+  const season = (params.get("season") || "").trim();
 
-  if (!/^\\d+$/.test(home || "") || !/^\\d+$/.test(away || "") || home === away) {
-    return NextResponse.json({ error: "Valid home and away team IDs are required." }, { status: 400 });
+  if (
+    !homeRaw ||
+    !awayRaw ||
+    !Number.isSafeInteger(home) ||
+    !Number.isSafeInteger(away) ||
+    home <= 0 ||
+    away <= 0 ||
+    home === away
+  ) {
+    console.error("Invalid team-form IDs received:", {
+      homePresent: Boolean(homeRaw),
+      awayPresent: Boolean(awayRaw),
+      homeIsInteger: Number.isSafeInteger(home),
+      awayIsInteger: Number.isSafeInteger(away),
+      sameTeam: home === away,
+    });
+    return NextResponse.json(
+      { error: "The match is missing valid team IDs. Please refresh the fixtures and try again.", code: "INVALID_TEAM_IDS" },
+      { status: 400 }
+    );
   }
 
   if (season && !/^\\d{4}$/.test(season)) {
