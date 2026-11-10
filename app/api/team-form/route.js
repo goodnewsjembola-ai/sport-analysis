@@ -36,127 +36,6 @@ function normalize(value) {
 
 
 
-const API_FOOTBALL_INTERNATIONAL = [
-  "nations league", "uefa nations league", "concacaf nations league",
-  "africa cup of nations", "afcon", "copa america", "fifa world cup",
-  "world cup", "european championship", "uefa euro", "asian cup",
-  "afc asian cup", "concacaf gold cup", "gold cup", "oceania nations cup",
-  "arab cup", "olympics", "international friendly", "friendlies",
-];
-
-async function apiFootball(path, key) {
-  const response = await fetch(`https://v3.football.api-sports.io${path}`, {
-    headers: { "x-apisports-key": key },
-    next: { revalidate: 1800 },
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || (body.errors && Object.keys(body.errors).length)) {
-    const detail = body?.errors ? JSON.stringify(body.errors) : `HTTP ${response.status}`;
-    throw new Error(`API-Football request failed: ${detail}`);
-  }
-  return body.response || [];
-}
-
-function sortApiFootballRecent(items) {
-  return (items || [])
-    .filter((match) => match.fixture?.status?.short === "FT"
-      && Number.isFinite(Number(match.goals?.home)) && Number.isFinite(Number(match.goals?.away)))
-    .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
-    .slice(0, 3);
-}
-
-function sortApiFootballH2H(items) {
-  return (items || [])
-    .filter((match) => match.fixture?.status?.short === "FT"
-      && Number.isFinite(Number(match.goals?.home)) && Number.isFinite(Number(match.goals?.away)))
-    .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
-    .slice(0, 5);
-}
-
-async function findApiFootballTeamId(teamName, key) {
-  const query = new URLSearchParams({ search: teamName });
-  const teams = await apiFootball(`/teams?${query.toString()}`, key);
-  const wanted = normalize(teamName);
-  const exact = teams.find((item) => normalize(item.team?.name) === wanted);
-  const matches = teams.filter((item) => {
-    const candidate = normalize(item.team?.name);
-    return candidate.length > 4 && wanted.length > 3
-      && (candidate.includes(wanted) || wanted.includes(candidate));
-  });
-  const selected = exact || matches.sort((a, b) =>
-    normalize(a.team?.name).length - normalize(b.team?.name).length
-  )[0];
-  return selected?.team?.id || null;
-}
-
-async function getApiFootballH2H(homeName, awayName) {
-  const key = process.env.API_FOOTBALL_KEY;
-  if (!key) throw new Error("API_FOOTBALL_KEY is missing from the server environment.");
-  const [homeId, awayId] = await Promise.all([
-    findApiFootballTeamId(homeName, key),
-    findApiFootballTeamId(awayName, key),
-  ]);
-  if (!homeId || !awayId) throw new Error("API-Football could not resolve both clubs for head-to-head.");
-  const meetings = await apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}&last=10`, key);
-  return sortApiFootballH2H(meetings);
-}
-
-async function getApiFootballForm(homeName, awayName) {
-  const key = process.env.API_FOOTBALL_KEY;
-  if (!key) throw new Error("API_FOOTBALL_KEY is missing from the server environment.");
-  // Resolve IDs in API-Football itself; fixture IDs may belong to GOAL API.
-  const [homeId, awayId] = await Promise.all([
-    findApiFootballTeamId(homeName, key),
-    findApiFootballTeamId(awayName, key),
-  ]);
-  if (!homeId || !awayId) {
-    throw new Error(`API-Football could not resolve its own team IDs. Home: ${homeId || "not found"}; Away: ${awayId || "not found"}.`);
-  }
-
-  // API-Football requires season whenever the fixtures request includes team.
-  // Check the current and previous season, then keep only matches in the
-  // rolling one-year window so old results are never presented as recent form.
-  const today = new Date();
-  const to = today.toISOString().slice(0, 10);
-  const recentStart = new Date(today);
-  recentStart.setUTCDate(recentStart.getUTCDate() - 365);
-  const from = recentStart.toISOString().slice(0, 10);
-  // The connected API-Football free plan only exposes seasons 2022–2024.
-  // Do not request newer seasons: those requests fail and can make both teams look empty.
-  const seasons = [2024, 2023, 2022];
-
-  // Fetch each team's form independently so one provider failure does not
-  // discard the other team's available results or the H2H response.
-  const [homeRequest, awayRequest, h2hRequest] = await Promise.allSettled([
-    Promise.all(seasons.map((season) =>
-      apiFootball(`/fixtures?team=${homeId}&season=${season}&from=${from}&to=${to}`, key)
-    )),
-    Promise.all(seasons.map((season) =>
-      apiFootball(`/fixtures?team=${awayId}&season=${season}&from=${from}&to=${to}`, key)
-    )),
-    apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}`, key),
-  ]);
-
-  const homeRecent = homeRequest.status === "fulfilled" ? sortApiFootballRecent(homeRequest.value.flat()) : [];
-  const awayRecent = awayRequest.status === "fulfilled" ? sortApiFootballRecent(awayRequest.value.flat()) : [];
-  const headToHead = h2hRequest.status === "fulfilled" ? sortApiFootballH2H(h2hRequest.value) : [];
-  const warnings = [];
-  if (homeRequest.status === "rejected") warnings.push(`API-Football could not retrieve the home team's results: ${homeRequest.reason?.message || "request failed"}`);
-  if (awayRequest.status === "rejected") warnings.push(`API-Football could not retrieve the away team's results: ${awayRequest.reason?.message || "request failed"}`);
-  if (h2hRequest.status === "rejected") warnings.push(`API-Football head-to-head request failed: ${h2hRequest.reason?.message || "request failed"}`);
-  if (!homeRecent.length) warnings.push(`API-Football returned no completed recent fixtures for the home team (ID ${homeId}) in the last 365 days.`);
-  if (!awayRecent.length) warnings.push(`API-Football returned no completed recent fixtures for the away team (ID ${awayId}) in the last 365 days.`);
-
-  return {
-    homeRecent,
-    awayRecent,
-    headToHead,
-    warnings,
-    formNotice: "Recent form uses each team's latest completed matches across competitions from the last 365 days. Head-to-head meetings are listed separately. Availability depends on the competition and API plan.",
-    source: "API-Football",
-  };
-}
-
 const NPFL_ID = "cmr77dxdp00urrx06pmkuqz1e";
 
 async function goalApi(path, key) {
@@ -896,8 +775,7 @@ export async function GET(request) {
 
   if (normalize(leagueName).includes("npfl") || normalize(leagueName).includes("nigerianpremier")) {
     try {
-      const data = await getNpFlForm(homeName, awayName);
-      return NextResponse.json(data);
+      return NextResponse.json(await getNpFlForm(homeName, awayName));
     } catch (error) {
       console.error("GOAL API NPFL recent-form request failed:", error);
       return NextResponse.json({
@@ -908,137 +786,69 @@ export async function GET(request) {
     }
   }
 
-
-  // GOAL API is primary. Top up each team's list independently from
-  // API-Football whenever GOAL API supplies fewer than five completed games.
+  // G SPORT uses independent non-API-Football feeds for team history.
+  // Each source is isolated so one provider outage cannot discard the others.
   let goalData;
   let goalError = null;
   try {
     goalData = await getGoalApiForm(homeName, awayName, homeId, awayId);
   } catch (error) {
     goalError = error;
-    console.error(`GOAL API recent-form request failed for ${leagueName}:`, error);
+    console.error("GOAL API recent-form request failed:", error);
     goalData = { homeRecent: [], awayRecent: [], headToHead: [], warnings: [], source: "GOAL API" };
   }
 
-  const needsTopUp = goalData.homeRecent.length < 5 || goalData.awayRecent.length < 5;
-  if (needsTopUp) {
-    // Try both fallback providers independently. A restriction or outage in
-    // one provider must not prevent valid results from the other being used.
-    // Start with providers that do not consume the tightly rate-limited
-    // API-Football quota. Only call API-Football if these sources still leave
-    // either club short of five verified completed matches.
-    const [footballDataResult, espnResult, apiNinjasResult] = await Promise.allSettled([
-      getFootballDataForm(homeName, awayName, leagueName),
-      getEspnForm(homeName, awayName, leagueName),
-      getApiNinjasForm(homeName, awayName),
-    ]);
-    const dataFallback = footballDataResult.status === "fulfilled"
-      ? footballDataResult.value
-      : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`Football-Data.org: ${footballDataResult.reason?.message || "request failed"}`] };
-    const espnFallback = espnResult.status === "fulfilled"
-      ? espnResult.value
-      : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`ESPN: ${espnResult.reason?.message || "request failed"}`] };
-    const ninjasFallback = apiNinjasResult.status === "fulfilled"
-      ? apiNinjasResult.value
-      : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`API Ninjas: ${apiNinjasResult.reason?.message || "request failed"}`] };
-
-    const preliminaryHome = mergeRecentMatches(
-      mergeRecentMatches(goalData.homeRecent, dataFallback.homeRecent),
-      mergeRecentMatches(espnFallback.homeRecent, ninjasFallback.homeRecent)
-    );
-    const preliminaryAway = mergeRecentMatches(
-      mergeRecentMatches(goalData.awayRecent, dataFallback.awayRecent),
-      mergeRecentMatches(espnFallback.awayRecent, ninjasFallback.awayRecent)
-    );
-    let apiFallback = { homeRecent: [], awayRecent: [], headToHead: [], warnings: [] };
-    if (preliminaryHome.length < 5 || preliminaryAway.length < 5) {
-      const apiFootballResult = await Promise.allSettled([
-        getApiFootballForm(homeName, awayName),
-      ]);
-      apiFallback = apiFootballResult[0].status === "fulfilled"
-        ? apiFootballResult[0].value
-        : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`API-Football: ${apiFootballResult[0].reason?.message || "request failed"}`] };
-    }
-
-    const homeRecent = mergeRecentMatches(
-      mergeRecentMatches(
-        mergeRecentMatches(
-          mergeRecentMatches(goalData.homeRecent, apiFallback.homeRecent),
-          dataFallback.homeRecent
-        ),
-        espnFallback.homeRecent
-      ),
-      ninjasFallback.homeRecent
-    );
-    const awayRecent = mergeRecentMatches(
-      mergeRecentMatches(
-        mergeRecentMatches(
-          mergeRecentMatches(goalData.awayRecent, apiFallback.awayRecent),
-          dataFallback.awayRecent
-        ),
-        espnFallback.awayRecent
-      ),
-      ninjasFallback.awayRecent
-    );
-    let headToHead = mergeH2HMatches(
-      goalData.headToHead,
-      apiFallback.headToHead,
-      dataFallback.headToHead,
-      espnFallback.headToHead
-    );
-    if (headToHead.length < 10) {
-      try {
-        const apiH2H = await getApiFootballH2H(homeName, awayName);
-        headToHead = mergeH2HMatches(headToHead, apiH2H);
-      } catch (error) {
-        console.error(`API-Football H2H fallback failed for ${homeName} vs ${awayName}:`, error);
-      }
-    }
-    const warnings = [
-      ...(goalError ? [`GOAL API: ${goalError.message || "No recent results returned."}`] : (goalData.warnings || [])),
-      ...(apiFallback.warnings || []),
-      ...(dataFallback.warnings || []),
-      ...(espnFallback.warnings || []),
-      ...(ninjasFallback.warnings || []),
-      ...(homeRecent.length < 5 ? [`Only ${homeRecent.length} completed recent matches could be retrieved for ${homeName} from the available providers.`] : []),
-      ...(awayRecent.length < 5 ? [`Only ${awayRecent.length} completed recent matches could be retrieved for ${awayName} from the available providers.`] : []),
-    ];
-    const sources = ["GOAL API"];
-    if (apiFallback.homeRecent.length || apiFallback.awayRecent.length) sources.push("API-Football");
-    if (dataFallback.homeRecent.length || dataFallback.awayRecent.length) sources.push("Football-Data.org");
-    if (espnFallback.homeRecent.length || espnFallback.awayRecent.length) sources.push("ESPN");
-    if (ninjasFallback.homeRecent.length || ninjasFallback.awayRecent.length) sources.push("API Ninjas");
-
-    return NextResponse.json({
-      ...goalData,
-      homeRecent,
-      awayRecent,
-      headToHead,
-      warnings,
-      source: sources.join(" + "),
-      formNotice: "Recent form combines verified completed results from GOAL API, API-Football, Football-Data.org, ESPN and API Ninjas when available. No unrelated teams or unfinished matches are included. Head-to-head meetings are listed separately.",
-    });
-  }
-
-  // H2H must be retrieved independently of recent-form top-ups. Both
-  // teams can already have five recent matches while the primary H2H feed is empty.
-  // Build H2H from independent providers even when both teams already
-  // have five recent matches. Recent-form arrays are left untouched.
-  const [footballDataH2H, espnH2H, ninjasH2H, apiFootballH2H] = await Promise.allSettled([
+  const [footballDataResult, espnResult, apiNinjasResult] = await Promise.allSettled([
     getFootballDataForm(homeName, awayName, leagueName),
     getEspnForm(homeName, awayName, leagueName),
     getApiNinjasForm(homeName, awayName),
-    getApiFootballH2H(homeName, awayName),
   ]);
+  const dataFallback = footballDataResult.status === "fulfilled" ? footballDataResult.value : { homeRecent: [], awayRecent: [], headToHead: [], warnings: ["Football-Data.org: " + (footballDataResult.reason?.message || "request failed")] };
+  const espnFallback = espnResult.status === "fulfilled" ? espnResult.value : { homeRecent: [], awayRecent: [], headToHead: [], warnings: ["ESPN: " + (espnResult.reason?.message || "request failed")] };
+  const ninjasFallback = apiNinjasResult.status === "fulfilled" ? apiNinjasResult.value : { homeRecent: [], awayRecent: [], headToHead: [], warnings: ["API Ninjas: " + (apiNinjasResult.reason?.message || "request failed")] };
+
+  const homeRecent = mergeRecentMatches(
+    mergeRecentMatches(
+      mergeRecentMatches(goalData.homeRecent || [], dataFallback.homeRecent || []),
+      espnFallback.homeRecent || []
+    ),
+    ninjasFallback.homeRecent || []
+  );
+  const awayRecent = mergeRecentMatches(
+    mergeRecentMatches(
+      mergeRecentMatches(goalData.awayRecent || [], dataFallback.awayRecent || []),
+      espnFallback.awayRecent || []
+    ),
+    ninjasFallback.awayRecent || []
+  );
   const headToHead = mergeH2HMatches(
     goalData.headToHead || [],
-    footballDataH2H.status === "fulfilled" ? footballDataH2H.value.headToHead : [],
-    espnH2H.status === "fulfilled" ? espnH2H.value.headToHead : [],
-    ninjasH2H.status === "fulfilled" ? ninjasH2H.value.headToHead : [],
-    apiFootballH2H.status === "fulfilled" ? apiFootballH2H.value : []
+    dataFallback.headToHead || [],
+    espnFallback.headToHead || [],
+    ninjasFallback.headToHead || []
   );
-  return NextResponse.json({ ...goalData, headToHead });
 
+  const warnings = [
+    ...(goalError ? ["GOAL API: " + (goalError.message || "No recent results returned.")] : (goalData.warnings || [])),
+    ...(dataFallback.warnings || []),
+    ...(espnFallback.warnings || []),
+    ...(ninjasFallback.warnings || []),
+    ...(homeRecent.length < 2 ? ["Fewer than two verified recent matches are available for " + homeName + "."] : []),
+    ...(awayRecent.length < 2 ? ["Fewer than two verified recent matches are available for " + awayName + "."] : []),
+  ];
+  const sources = [];
+  if (goalData.homeRecent?.length || goalData.awayRecent?.length || goalData.headToHead?.length) sources.push("GOAL API");
+  if (dataFallback.homeRecent?.length || dataFallback.awayRecent?.length || dataFallback.headToHead?.length) sources.push("Football-Data.org");
+  if (espnFallback.homeRecent?.length || espnFallback.awayRecent?.length || espnFallback.headToHead?.length) sources.push("ESPN");
+  if (ninjasFallback.homeRecent?.length || ninjasFallback.awayRecent?.length || ninjasFallback.headToHead?.length) sources.push("API Ninjas");
 
+  return NextResponse.json({
+    ...goalData,
+    homeRecent,
+    awayRecent,
+    headToHead,
+    warnings,
+    source: sources.join(" + ") || "No verified source returned data",
+    formNotice: "Recent form combines verified completed results from GOAL API, Football-Data.org, ESPN and API Ninjas when available. No unrelated teams or unfinished matches are included. Head-to-head meetings are listed separately.",
+  });
 }
