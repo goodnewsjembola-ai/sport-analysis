@@ -675,7 +675,7 @@ export default function Home() {
           )}
         </div>
         <p className="data-notice">
-          Live fixture data and match predictions are supplied by API-Football and displayed in Lagos time. Predictions are estimates, not guarantees.
+          Fixture information is gathered from independent football data feeds. G SPORT calculates its own match predictions from verified team performance. All kick-off times are displayed in Lagos time; predictions are estimates, not guarantees.
         </p>
       </section>
 
