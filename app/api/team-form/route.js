@@ -336,9 +336,17 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
     .filter((match) => Number.isFinite(match.goals.home) && Number.isFinite(match.goals.away)
       && match.fixture.timestamp >= recentCutoff)
     .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp).slice(0, 5);
-  const attachFixtureTeamId = (matches, targetTeam, apiTeamId) => matches.map((match) => {
-    if (normalize(match.teams.home.name) === normalize(targetTeam.name)) match.teams.home.id = apiTeamId;
-    else if (normalize(match.teams.away.name) === normalize(targetTeam.name)) match.teams.away.id = apiTeamId;
+  const attachFixtureTeamId = (matches, targetTeam, fixtureTeamId) => matches.map((match) => {
+    // Match on GOAL's stable team ID first. Club display names can vary
+    // between providers (for example, "Leeds" vs "Leeds United"), and a
+    // name-only miss previously made the UI treat the away side as the team.
+    if (String(match.teams.home.id || "") === String(targetTeam.id || "")
+      || normalize(match.teams.home.name) === normalize(targetTeam.name)) {
+      match.teams.home.id = fixtureTeamId;
+    } else if (String(match.teams.away.id || "") === String(targetTeam.id || "")
+      || normalize(match.teams.away.name) === normalize(targetTeam.name)) {
+      match.teams.away.id = fixtureTeamId;
+    }
     return match;
   });
   const homeRecent = attachFixtureTeamId(completed(homeBody), homeTeam, homeApiId);
