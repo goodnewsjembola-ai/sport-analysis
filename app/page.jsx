@@ -596,7 +596,7 @@ export default function Home() {
                           <section className="form-section" aria-label="Recent form and head to head">
                             <div className="form-section-heading">
                               <div><small>TEAM PERFORMANCE</small><h4>Recent form <em>& history.</em></h4></div>
-                              <span>LAST 5 MATCHES</span>
+                              <span>LAST 3 MATCHES</span>
                             </div>
                             {formLoading === fixtureId && <p className="form-message">Loading recent results and previous meetings...</p>}
                             {formErrors[fixtureId] && <div className="form-message form-error"><p>{formErrors[fixtureId]}</p>{formErrors[fixtureId].details?.map((detail, index) => <small key={index}>{detail}</small>)}</div>}
