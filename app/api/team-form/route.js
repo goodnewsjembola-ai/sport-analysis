@@ -640,7 +640,7 @@ export async function GET(request) {
       headToHead,
       warnings,
       source: sources.join(" + "),
-      formNotice: "Recent form combines verified completed results from GOAL API, API-Football and Football-Data.org when available. No unrelated teams or unfinished matches are included. Head-to-head meetings are listed separately.",
+      formNotice: "Recent form combines verified completed results from GOAL API, API-Football, Football-Data.org and ESPN when available. No unrelated teams or unfinished matches are included. Head-to-head meetings are listed separately.",
     });
   }
 
