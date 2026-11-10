@@ -26,7 +26,7 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const fixture = searchParams.get("fixture");
 
-  if (!fixture || !/^\\d+$/.test(fixture)) {
+  if (!fixture || !/^\d+$/.test(fixture)) {
     return NextResponse.json(
       { error: "A valid fixture ID is required." },
       { status: 400 }
