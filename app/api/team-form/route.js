@@ -65,6 +65,7 @@ export async function GET(request) {
   const params = new URL(request.url).searchParams;
   const homeRaw = (params.get("home") || "").trim();
   const awayRaw = (params.get("away") || "").trim();
+  const season = (params.get("season") || "").trim();
   const home = Number(homeRaw);
   const away = Number(awayRaw);
 
@@ -90,8 +91,15 @@ export async function GET(request) {
     );
   }
 
+  if (!/^\d{4}$/.test(season)) {
+    return NextResponse.json(
+      { error: "The match is missing a valid four-digit competition season. Please refresh the fixtures and try again.", code: "INVALID_SEASON" },
+      { status: 400 }
+    );
+  }
+
   // The API-Football Free plan rejects the "last" parameter.
-  // Use supported date ranges, then select the five newest completed matches.
+  // Include the required four-digit season, then select the five newest completed matches.
   const today = new Date();
   const teamFrom = new Date(today);
   teamFrom.setUTCDate(teamFrom.getUTCDate() - 365);
@@ -106,6 +114,7 @@ export async function GET(request) {
   function makeTeamUrl(teamId) {
     const url = new URL(base);
     url.searchParams.set("team", teamId);
+    url.searchParams.set("season", season);
     url.searchParams.set("from", teamFromDate);
     url.searchParams.set("to", toDate);
     url.searchParams.set("timezone", "Africa/Lagos");
