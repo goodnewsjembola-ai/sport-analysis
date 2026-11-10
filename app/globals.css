@@ -82,3 +82,7 @@ footer{padding:35px 9%;border-top:1px solid var(--line);display:flex;align-items
 .team-goal-tile strong{display:block;margin:13px 0 5px;font-family:'Playfair Display',serif;font-size:clamp(25px,3vw,34px);font-weight:500;line-height:1.1;color:var(--gold-light)}
 .team-goal-caption{font-size:9px;color:#7f897d}
 @media(max-width:620px){.prediction-details{grid-template-columns:1fr}.team-goals-section{padding:13px}.team-goals-heading h4{font-size:18px}.provider-estimate-label{font-size:6px;padding:6px}.team-goals-grid{gap:7px}.team-goal-tile{padding:12px}.team-goal-tile strong{font-size:25px}.team-goal-side{font-size:7px;letter-spacing:1px}}
+
+
+/* Plain-language explanations for team-goal estimates */
+.team-goal-explanation{display:block;margin-top:7px;color:var(--gold);font-size:10px;font-weight:600;letter-spacing:.2px}
