@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStoredTeamHistory, saveVerifiedMatches } from "@/lib/match-store";
+import { getStoredTeamHistory, saveVerifiedMatches } from "../../../lib/match-store.js";
 
 export const revalidate = 1800;
 
