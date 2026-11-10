@@ -61,7 +61,7 @@ function sortApiFootballRecent(items) {
 async function getApiFootballForm(homeId, awayId) {
   const key = process.env.API_FOOTBALL_KEY;
   if (!key) throw new Error("API_FOOTBALL_KEY is missing from the server environment.");
-  if (!/^\\d+$/.test(String(homeId || "")) || !/^\\d+$/.test(String(awayId || ""))) {
+  if (!/^\d+$/.test(String(homeId || "")) || !/^\d+$/.test(String(awayId || ""))) {
     throw new Error("The fixture did not include valid API-Football team IDs for recent-form lookup.");
   }
 
@@ -84,7 +84,8 @@ async function getApiFootballForm(homeId, awayId) {
     source: "API-Football",
   };
 }
-\nconst NPFL_ID = "cmr77dxdp00urrx06pmkuqz1e";
+
+const NPFL_ID = "cmr77dxdp00urrx06pmkuqz1e";
 
 async function goalApi(path, key) {
   const response = await fetch(`https://api.goal-api.com/v1${path}`, {
