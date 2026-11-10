@@ -65,6 +65,14 @@ function sortApiFootballRecent(items) {
     .slice(0, 5);
 }
 
+function sortApiFootballH2H(items) {
+  return (items || [])
+    .filter((match) => match.fixture?.status?.short === "FT"
+      && Number.isFinite(Number(match.goals?.home)) && Number.isFinite(Number(match.goals?.away)))
+    .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
+    .slice(0, 10);
+}
+
 async function findApiFootballTeamId(teamName, key) {
   const query = new URLSearchParams({ search: teamName });
   const teams = await apiFootball(`/teams?${query.toString()}`, key);
@@ -89,8 +97,8 @@ async function getApiFootballH2H(homeName, awayName) {
     findApiFootballTeamId(awayName, key),
   ]);
   if (!homeId || !awayId) throw new Error("API-Football could not resolve both clubs for head-to-head.");
-  const meetings = await apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}`, key);
-  return sortApiFootballRecent(meetings);
+  const meetings = await apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}&last=10`, key);
+  return sortApiFootballH2H(meetings);
 }
 
 async function getApiFootballForm(homeName, awayName) {
@@ -131,7 +139,7 @@ async function getApiFootballForm(homeName, awayName) {
 
   const homeRecent = homeRequest.status === "fulfilled" ? sortApiFootballRecent(homeRequest.value.flat()) : [];
   const awayRecent = awayRequest.status === "fulfilled" ? sortApiFootballRecent(awayRequest.value.flat()) : [];
-  const headToHead = h2hRequest.status === "fulfilled" ? sortApiFootballRecent(h2hRequest.value) : [];
+  const headToHead = h2hRequest.status === "fulfilled" ? sortApiFootballH2H(h2hRequest.value) : [];
   const warnings = [];
   if (homeRequest.status === "rejected") warnings.push(`API-Football could not retrieve the home team's results: ${homeRequest.reason?.message || "request failed"}`);
   if (awayRequest.status === "rejected") warnings.push(`API-Football could not retrieve the away team's results: ${awayRequest.reason?.message || "request failed"}`);
@@ -417,7 +425,7 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   const asArray = (value) => Array.isArray(value) ? value
     : value?.matches || value?.results || value?.items || value?.fixtures || value?.data || [];
   const recentCutoff = Math.floor((Date.now() - 365 * 86400000) / 1000);
-  const completed = (items, includeOlderMeetings = false) => asArray(items)
+  const completed = (items, includeOlderMeetings = false, maxResults = 5) => asArray(items)
     .filter((match) => {
       const rawStatus = match.matchStatus || match.match_status || match.status?.short || match.status || match.fixture?.status?.short || "";
       const status = String(typeof rawStatus === "object" ? rawStatus.name || rawStatus.type || "" : rawStatus).toUpperCase();
@@ -430,7 +438,7 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
     .map(goalFixtureToStandard)
     .filter((match) => Number.isFinite(match.goals.home) && Number.isFinite(match.goals.away)
       && (includeOlderMeetings || match.fixture.timestamp >= recentCutoff))
-    .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp).slice(0, 5);
+    .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp).slice(0, maxResults);
   const attachFixtureTeamId = (matches, targetTeam, fixtureTeamId) => matches.map((match) => {
     // Match on GOAL's stable team ID first. Club display names can vary
     // between providers (for example, "Leeds" vs "Leeds United"), and a
@@ -446,7 +454,7 @@ async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   });
   const homeRecent = attachFixtureTeamId(completed(homeBody), homeTeam, homeApiId);
   const awayRecent = attachFixtureTeamId(completed(awayBody), awayTeam, awayApiId);
-  const headToHead = completed(h2hBody, true);
+  const headToHead = completed(h2hBody, true, 10);
   if (!homeRecent.length && !awayRecent.length && !headToHead.length) {
     throw new Error(requestWarnings.join(" ") || "GOAL API returned no completed results for either team.");
   }
@@ -472,6 +480,25 @@ function mergeRecentMatches(primary, fallback) {
     })
     .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
     .slice(0, 5);
+}
+
+function mergeH2HMatches(...groups) {
+  const seen = new Set();
+  return groups.flat().filter(Boolean)
+    .filter((match) => {
+      const fixture = match.fixture || {};
+      const home = normalize(match.teams?.home?.name);
+      const away = normalize(match.teams?.away?.name);
+      const date = fixture.timestamp || fixture.date || "";
+      const score = `${match.goals?.home}-${match.goals?.away}`;
+      const identity = fixture.id ? `id:${fixture.id}`
+        : `match:${date}:${home}:${away}:${score}`;
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    })
+    .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
+    .slice(0, 10);
 }
 
 async function footballData(path, token) {
@@ -594,7 +621,7 @@ async function getFootballDataForm(homeName, awayName, leagueName) {
   return {
     homeRecent,
     awayRecent,
-    headToHead: mergeRecentMatches(h2hMatches, []),
+    headToHead: mergeH2HMatches(h2hMatches),
     warnings,
     source: "Football-Data.org",
     teamsMatched: { home: homeTeam.name, away: awayTeam.name },
@@ -820,7 +847,7 @@ async function getEspnForm(homeName, awayName, leagueName) {
         && normalize(match.teams.away.name) === normalize(homeTeam.displayName || homeTeam.name))
     ))
     .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp)
-    .slice(0, 5);
+    .slice(0, 10);
   const warnings = [
     ...(!homeRecent.length ? [`ESPN returned no completed recent results for ${homeName}.`] : []),
     ...(!awayRecent.length ? [`ESPN returned no completed recent results for ${awayName}.`] : []),
@@ -927,15 +954,16 @@ export async function GET(request) {
       ),
       ninjasFallback.awayRecent
     );
-    let headToHead = goalData.headToHead.length
-      ? goalData.headToHead
-      : mergeRecentMatches(
-          mergeRecentMatches(apiFallback.headToHead, dataFallback.headToHead),
-          espnFallback.headToHead
-        );
-    if (!headToHead.length) {
+    let headToHead = mergeH2HMatches(
+      goalData.headToHead,
+      apiFallback.headToHead,
+      dataFallback.headToHead,
+      espnFallback.headToHead
+    );
+    if (headToHead.length < 10) {
       try {
-        headToHead = await getApiFootballH2H(homeName, awayName);
+        const apiH2H = await getApiFootballH2H(homeName, awayName);
+        headToHead = mergeH2HMatches(headToHead, apiH2H);
       } catch (error) {
         console.error(`API-Football H2H fallback failed for ${homeName} vs ${awayName}:`, error);
       }
@@ -968,9 +996,10 @@ export async function GET(request) {
 
   // H2H must be retrieved independently of recent-form top-ups. Both
   // teams can already have five recent matches while the primary H2H feed is empty.
-  if (!goalData.headToHead?.length) {
+  if ((goalData.headToHead || []).length < 10) {
     try {
-      const headToHead = await getApiFootballH2H(homeName, awayName);
+      const apiH2H = await getApiFootballH2H(homeName, awayName);
+      const headToHead = mergeH2HMatches(goalData.headToHead || [], apiH2H);
       if (headToHead.length) goalData = { ...goalData, headToHead };
     } catch (error) {
       console.error(`API-Football H2H fallback failed for ${homeName} vs ${awayName}:`, error);
