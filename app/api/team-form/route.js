@@ -91,22 +91,13 @@ export async function GET(request) {
     );
   }
 
-  if (!/^\d{4}$/.test(season)) {
-    return NextResponse.json(
-      { error: "The match is missing a valid four-digit competition season. Please refresh the fixtures and try again.", code: "INVALID_SEASON" },
-      { status: 400 }
-    );
-  }
-
-  // The API-Football Free plan rejects the "last" parameter.
-  // Include the required four-digit season, then select the five newest completed matches.
+  // The connected API-Football Free plan only permits seasons 2022–2024.
+  // Use the newest season available on that plan instead of the current fixture season.
+  const accessibleSeason = "2024";
   const today = new Date();
-  const teamFrom = new Date(today);
-  teamFrom.setUTCDate(teamFrom.getUTCDate() - 365);
   const h2hFrom = new Date(today);
   h2hFrom.setUTCFullYear(h2hFrom.getUTCFullYear() - 5);
 
-  const teamFromDate = dateOnly(teamFrom);
   const h2hFromDate = dateOnly(h2hFrom);
   const toDate = dateOnly(today);
   const base = "https://v3.football.api-sports.io/fixtures";
@@ -114,9 +105,7 @@ export async function GET(request) {
   function makeTeamUrl(teamId) {
     const url = new URL(base);
     url.searchParams.set("team", teamId);
-    url.searchParams.set("season", season);
-    url.searchParams.set("from", teamFromDate);
-    url.searchParams.set("to", toDate);
+    url.searchParams.set("season", accessibleSeason);
     url.searchParams.set("timezone", "Africa/Lagos");
     return url;
   }
@@ -153,10 +142,11 @@ export async function GET(request) {
     headToHead: h2hResult.fixtures,
     warnings: errors,
     dateRanges: {
-      teamFormFrom: teamFromDate,
+      teamFormSeason: accessibleSeason,
       headToHeadFrom: h2hFromDate,
       to: toDate,
     },
     timezone: "Africa/Lagos",
+    formNotice: "Team recent form is limited to the 2024 season because this API-Football Free plan only provides seasons 2022–2024.",
   });
 }
