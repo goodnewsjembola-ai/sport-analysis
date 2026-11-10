@@ -208,29 +208,41 @@ export default function Home() {
     }
 
     setOpenAnalysis(fixtureId);
-    if (analysisByFixture[fixtureId]) return;
 
-    setAnalysisLoading(fixtureId);
-    setAnalysisErrors((current) => ({ ...current, [fixtureId]: "" }));
+    const needsPrediction = force || !analysisByFixture[fixtureId];
+    const needsForm = Boolean(homeId && awayId && (force || !formByFixture[fixtureId]));
+    if (!needsPrediction && !needsForm) return;
 
-    try {
-      const response = await fetch(`/api/predictions?fixture=${fixtureId}`);
-      const data = await response.json();
+    const requests = [];
 
-      if (!response.ok) {
-        throw new Error(data.error || "Match analysis could not be loaded.");
-      }
+    // Prediction and team-history providers are independent. A prediction
+    // outage must never prevent the last-five and H2H request from running.
+    if (needsPrediction) {
+      setAnalysisLoading(fixtureId);
+      setAnalysisErrors((current) => ({ ...current, [fixtureId]: "" }));
+      requests.push((async () => {
+        try {
+          const response = await fetch(`/api/predictions?fixture=${encodeURIComponent(fixtureId)}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "Match analysis could not be loaded.");
+          const result = data.predictions?.[0] || null;
+          if (!result) throw new Error("The prediction provider has no prediction for this fixture. Team history can still be viewed below.");
+          setAnalysisByFixture((current) => ({ ...current, [fixtureId]: result }));
+        } catch (error) {
+          setAnalysisErrors((current) => ({
+            ...current,
+            [fixtureId]: error.message || "Unable to load match analysis.",
+          }));
+        } finally {
+          setAnalysisLoading((current) => current === fixtureId ? null : current);
+        }
+      })());
+    }
 
-      const result = data.predictions?.[0] || null;
-      if (!result) {
-        throw new Error("No prediction is available for this fixture yet.");
-      }
-
-      setAnalysisByFixture((current) => ({ ...current, [fixtureId]: result }));
-
-      if (homeId && awayId) {
-        setFormLoading(fixtureId);
-        setFormErrors((current) => ({ ...current, [fixtureId]: "" }));
+    if (needsForm) {
+      setFormLoading(fixtureId);
+      setFormErrors((current) => ({ ...current, [fixtureId]: "" }));
+      requests.push((async () => {
         try {
           const formParams = new URLSearchParams({
             homeName: String(homeName || ""),
@@ -252,17 +264,12 @@ export default function Home() {
             [fixtureId]: formError.message || "Unable to load recent form.",
           }));
         } finally {
-          setFormLoading(null);
+          setFormLoading((current) => current === fixtureId ? null : current);
         }
-      }
-    } catch (error) {
-      setAnalysisErrors((current) => ({
-        ...current,
-        [fixtureId]: error.message || "Unable to load match analysis.",
-      }));
-    } finally {
-      setAnalysisLoading(null);
+      })());
     }
+
+    await Promise.all(requests);
   }
 
   const availableLeagues = useMemo(() => {
@@ -453,8 +460,8 @@ export default function Home() {
                         }}>Try again</button>
                       </div>
                     )}
-                    {analysisByFixture[fixtureId] && (() => {
-                      const item = analysisByFixture[fixtureId];
+                    {(analysisByFixture[fixtureId] || formByFixture[fixtureId]) && (() => {
+                      const item = analysisByFixture[fixtureId] || {};
                       const prediction = item.predictions || {};
                       const percent = prediction.percent || {};
                       const goals = prediction.goals || {};
