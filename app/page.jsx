@@ -190,7 +190,7 @@ export default function Home() {
     };
   }, []);
 
-  async function toggleAnalysis(fixtureId, force = false, homeId = null, awayId = null, season = null) {
+  async function toggleAnalysis(fixtureId, force = false, homeId = null, awayId = null, season = null, homeName = "", awayName = "", leagueName = "") {
     if (!fixtureId) return;
 
     if (openAnalysis === fixtureId && !force) {
@@ -224,9 +224,9 @@ export default function Home() {
         setFormErrors((current) => ({ ...current, [fixtureId]: "" }));
         try {
           const formParams = new URLSearchParams({
-            homeName: String(fixture.teams?.home?.name || ""),
-            awayName: String(fixture.teams?.away?.name || ""),
-            league: String(fixture.league?.name || ""),
+            homeName: String(homeName || ""),
+            awayName: String(awayName || ""),
+            league: String(leagueName || ""),
           });
           const formResponse = await fetch(`/api/team-form?${formParams.toString()}`);
           const formData = await formResponse.json();
@@ -370,7 +370,7 @@ export default function Home() {
                 <div className="match-status">{getStatusLabel(fixture.fixture?.status?.short)}</div>
                 <button
                   className="analysis-button"
-                  onClick={() => toggleAnalysis(fixtureId, false, fixture.teams?.home?.id, fixture.teams?.away?.id, fixture.league?.season)}
+                  onClick={() => toggleAnalysis(fixtureId, false, fixture.teams?.home?.id, fixture.teams?.away?.id, fixture.league?.season, fixture.teams?.home?.name, fixture.teams?.away?.name, fixture.league?.name)}
                   aria-expanded={openAnalysis === fixtureId}
                 >
                   {openAnalysis === fixtureId ? "Close analysis" : "View analysis"} <span>↗</span>
@@ -392,7 +392,7 @@ export default function Home() {
                             delete next[fixtureId];
                             return next;
                           });
-                          toggleAnalysis(fixtureId, true, fixture.teams?.home?.id, fixture.teams?.away?.id, fixture.league?.season);
+                          toggleAnalysis(fixtureId, true, fixture.teams?.home?.id, fixture.teams?.away?.id, fixture.league?.season, fixture.teams?.home?.name, fixture.teams?.away?.name, fixture.league?.name);
                         }}>Try again</button>
                       </div>
                     )}
