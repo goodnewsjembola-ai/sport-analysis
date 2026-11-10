@@ -74,6 +74,18 @@ async function findApiFootballTeamId(teamName, key) {
   return selected?.team?.id || null;
 }
 
+async function getApiFootballH2H(homeName, awayName) {
+  const key = process.env.API_FOOTBALL_KEY;
+  if (!key) throw new Error("API_FOOTBALL_KEY is missing from the server environment.");
+  const [homeId, awayId] = await Promise.all([
+    findApiFootballTeamId(homeName, key),
+    findApiFootballTeamId(awayName, key),
+  ]);
+  if (!homeId || !awayId) throw new Error("API-Football could not resolve both clubs for head-to-head.");
+  const meetings = await apiFootball(`/fixtures/headtohead?h2h=${homeId}-${awayId}`, key);
+  return sortApiFootballRecent(meetings);
+}
+
 async function getApiFootballForm(homeName, awayName) {
   const key = process.env.API_FOOTBALL_KEY;
   if (!key) throw new Error("API_FOOTBALL_KEY is missing from the server environment.");
@@ -908,12 +920,19 @@ export async function GET(request) {
       ),
       ninjasFallback.awayRecent
     );
-    const headToHead = goalData.headToHead.length
+    let headToHead = goalData.headToHead.length
       ? goalData.headToHead
       : mergeRecentMatches(
           mergeRecentMatches(apiFallback.headToHead, dataFallback.headToHead),
           espnFallback.headToHead
         );
+    if (!headToHead.length) {
+      try {
+        headToHead = await getApiFootballH2H(homeName, awayName);
+      } catch (error) {
+        console.error(`API-Football H2H fallback failed for ${homeName} vs ${awayName}:`, error);
+      }
+    }
     const warnings = [
       ...(goalError ? [`GOAL API: ${goalError.message || "No recent results returned."}`] : (goalData.warnings || [])),
       ...(apiFallback.warnings || []),
@@ -940,6 +959,16 @@ export async function GET(request) {
     });
   }
 
+  // H2H must be retrieved independently of recent-form top-ups. Both
+  // teams can already have five recent matches while the primary H2H feed is empty.
+  if (!goalData.headToHead?.length) {
+    try {
+      const headToHead = await getApiFootballH2H(homeName, awayName);
+      if (headToHead.length) goalData = { ...goalData, headToHead };
+    } catch (error) {
+      console.error(`API-Football H2H fallback failed for ${homeName} vs ${awayName}:`, error);
+    }
+  }
   return NextResponse.json(goalData);
 
 
