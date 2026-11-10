@@ -70,7 +70,7 @@ function sortApiFootballH2H(items) {
     .filter((match) => match.fixture?.status?.short === "FT"
       && Number.isFinite(Number(match.goals?.home)) && Number.isFinite(Number(match.goals?.away)))
     .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
-    .slice(0, 10);
+    .slice(0, 5);
 }
 
 async function findApiFootballTeamId(teamName, key) {
@@ -510,7 +510,7 @@ function mergeH2HMatches(...groups) {
       return true;
     })
     .sort((a, b) => (b.fixture?.timestamp || 0) - (a.fixture?.timestamp || 0))
-    .slice(0, 10);
+    .slice(0, 5);
 }
 
 async function footballData(path, token) {
@@ -871,7 +871,7 @@ async function getEspnForm(homeName, awayName, leagueName) {
         && normalize(match.teams.away.name) === normalize(homeTeam.displayName || homeTeam.name))
     ))
     .sort((a, b) => b.fixture.timestamp - a.fixture.timestamp)
-    .slice(0, 10);
+    .slice(0, 5);
   const warnings = [
     ...(!homeRecent.length ? [`ESPN returned no completed recent results for ${homeName}.`] : []),
     ...(!awayRecent.length ? [`ESPN returned no completed recent results for ${awayName}.`] : []),
