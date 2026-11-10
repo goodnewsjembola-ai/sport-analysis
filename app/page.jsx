@@ -227,7 +227,10 @@ export default function Home() {
           if (season) formParams.set("season", String(season));
           const formResponse = await fetch(`/api/team-form?${formParams.toString()}`);
           const formData = await formResponse.json();
-          if (!formResponse.ok) throw new Error(formData.error || "Recent form could not be loaded.");
+          if (!formResponse.ok) {
+            const details = Array.isArray(formData.details) ? formData.details.join(" · ") : "";
+            throw new Error([formData.error || "Recent form could not be loaded.", details].filter(Boolean).join(" — "));
+          }
           setFormByFixture((current) => ({ ...current, [fixtureId]: formData }));
         } catch (formError) {
           setFormErrors((current) => ({
