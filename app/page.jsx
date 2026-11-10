@@ -100,10 +100,10 @@ export default function Home() {
     };
   }, []);
 
-  async function toggleAnalysis(fixtureId) {
+  async function toggleAnalysis(fixtureId, force = false) {
     if (!fixtureId) return;
 
-    if (openAnalysis === fixtureId) {
+    if (openAnalysis === fixtureId && !force) {
       setOpenAnalysis(null);
       return;
     }
@@ -271,7 +271,7 @@ export default function Home() {
                             delete next[fixtureId];
                             return next;
                           });
-                          toggleAnalysis(fixtureId);
+                          toggleAnalysis(fixtureId, true);
                         }}>Try again</button>
                       </div>
                     )}
