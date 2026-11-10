@@ -63,13 +63,11 @@ export async function GET(request) {
   homeUrl.searchParams.set("team", home);
   homeUrl.searchParams.set("last", "5");
   homeUrl.searchParams.set("timezone", "Africa/Lagos");
-  if (season) homeUrl.searchParams.set("season", season);
 
   const awayUrl = new URL(base);
   awayUrl.searchParams.set("team", away);
   awayUrl.searchParams.set("last", "5");
   awayUrl.searchParams.set("timezone", "Africa/Lagos");
-  if (season) awayUrl.searchParams.set("season", season);
 
   const h2hUrl = new URL(`${base}/headtohead`);
   h2hUrl.searchParams.set("h2h", `${home}-${away}`);
