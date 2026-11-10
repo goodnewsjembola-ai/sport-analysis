@@ -913,6 +913,15 @@ export async function GET(request) {
     goalData = { homeRecent: [], awayRecent: [], headToHead: [], warnings: [], source: "GOAL API" };
   }
 
+  let leagueHistory = { homeRecent: [], awayRecent: [], headToHead: [], source: null, warnings: [] };
+  try {
+    leagueHistory = await getGoalLeagueHistory(leagueName, homeName, awayName);
+    if (leagueHistory.warning) leagueHistory.warnings.push(leagueHistory.warning);
+  } catch (error) {
+    console.error("GOAL API competition-specific history lookup failed:", error);
+    leagueHistory.warnings.push("GOAL API league results: " + (error.message || "request failed"));
+  }
+
   const [footballDataResult, espnResult, apiNinjasResult] = await Promise.allSettled([
     getFootballDataForm(homeName, awayName, leagueName),
     getEspnForm(homeName, awayName, leagueName),
@@ -956,7 +965,7 @@ export async function GET(request) {
   }
 
   const warnings = [
-    ...(goalError ? ["GOAL API: " + (goalError.message || "No recent results returned.")] : (goalData.warnings || [])),
+    ...(goalError ? ["GOAL API: " + (goalError.message || "No recent results returned.")] : (goalData.warnings || [])),\n    ...(leagueHistory.warnings || []),
     ...(dataFallback.warnings || []),
     ...(espnFallback.warnings || []),
     ...(ninjasFallback.warnings || []),
@@ -964,7 +973,7 @@ export async function GET(request) {
     ...(awayRecent.length < 2 ? ["Fewer than two verified recent matches are available for " + awayName + "."] : []),
   ];
   const sources = [];
-  if (goalData.homeRecent?.length || goalData.awayRecent?.length || goalData.headToHead?.length) sources.push("GOAL API");
+  if (goalData.homeRecent?.length || goalData.awayRecent?.length || goalData.headToHead?.length) sources.push("GOAL API");\n  if (leagueHistory.homeRecent?.length || leagueHistory.awayRecent?.length || leagueHistory.headToHead?.length) sources.push("GOAL API league results");
   if (dataFallback.homeRecent?.length || dataFallback.awayRecent?.length || dataFallback.headToHead?.length) sources.push("Football-Data.org");
   if (espnFallback.homeRecent?.length || espnFallback.awayRecent?.length || espnFallback.headToHead?.length) sources.push("ESPN");
   if (ninjasFallback.homeRecent?.length || ninjasFallback.awayRecent?.length || ninjasFallback.headToHead?.length) sources.push("API Ninjas");
