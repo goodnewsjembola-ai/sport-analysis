@@ -366,14 +366,11 @@ async function getFootballDataForm(homeName, awayName, leagueName) {
   // clubs from different divisions and the fixture's competition may not
   // contain either club.
   const competitionCodes = [...new Set(COMPETITIONS.map((item) => item.code))];
-  const directoryRequest = footballData("/teams", token).catch(() => ({ teams: [] }));
-  const competitionRequests = await Promise.allSettled(
-    competitionCodes.map((code) => footballData(`/competitions/${code}/teams`, token))
-  );
-  const [directory, ...competitionResults] = await Promise.all([
-    directoryRequest,
-    Promise.resolve(competitionRequests),
+  const [directoryResult, ...competitionResults] = await Promise.allSettled([
+    footballData("/teams", token),
+    ...competitionCodes.map((code) => footballData(`/competitions/${code}/teams`, token)),
   ]);
+  const directory = directoryResult.status === "fulfilled" ? directoryResult.value : { teams: [] };
   const allTeams = [
     ...(Array.isArray(directory?.teams) ? directory.teams : []),
     ...competitionResults.flatMap((result) =>
