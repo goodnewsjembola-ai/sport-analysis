@@ -67,7 +67,6 @@ export async function GET(request) {
   const awayRaw = (params.get("away") || "").trim();
   const home = Number(homeRaw);
   const away = Number(awayRaw);
-  const season = (params.get("season") || "").trim();
 
   if (
     !homeRaw ||
@@ -91,10 +90,6 @@ export async function GET(request) {
     );
   }
 
-  if (season && !/^\\d{4}$/.test(season)) {
-    return NextResponse.json({ error: "Season must be a four-digit year." }, { status: 400 });
-  }
-
   // The API-Football Free plan rejects the "last" parameter.
   // Use supported date ranges, then select the five newest completed matches.
   const today = new Date();
@@ -114,7 +109,6 @@ export async function GET(request) {
     url.searchParams.set("from", teamFromDate);
     url.searchParams.set("to", toDate);
     url.searchParams.set("timezone", "Africa/Lagos");
-    if (season) url.searchParams.set("season", season);
     return url;
   }
 
