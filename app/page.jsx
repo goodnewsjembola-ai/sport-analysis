@@ -497,6 +497,9 @@ export default function Home() {
                             </div>
                             {formLoading === fixtureId && <p className="form-message">Loading recent results and previous meetings...</p>}
                             {formErrors[fixtureId] && <p className="form-message form-error">{formErrors[fixtureId]}</p>}
+                            {formByFixture[fixtureId]?.warnings?.length > 0 && (
+                              <p className="form-message">Some recent-form information could not be retrieved. Available results are shown below.</p>
+                            )}
                             {formByFixture[fixtureId] && (() => {
                               const form = formByFixture[fixtureId];
                               const homeId = fixture.teams?.home?.id;
