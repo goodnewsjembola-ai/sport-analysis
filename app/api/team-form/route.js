@@ -236,12 +236,13 @@ async function findGoalTeamByName(name, key) {
 }
 
 function goalFixtureToStandard(match) {
-  const homeName = match.homeTeamName || match.homeTeam?.name || match.match_hometeam_name;
-  const awayName = match.awayTeamName || match.awayTeam?.name || match.match_awayteam_name;
-  const homeScore = match.homeTeamFtScore ?? match.homeTeamScore ?? match.match_hometeam_score;
-  const awayScore = match.awayTeamFtScore ?? match.awayTeamScore ?? match.match_awayteam_score;
-  const kickoff = match.kickoffUtc || match.matchDate || match.match_date;
-  const status = String(match.matchStatus || match.match_status || "").toUpperCase();
+  const homeName = match.homeTeamName || match.homeTeam?.name || match.match_hometeam_name || match.home?.name;
+  const awayName = match.awayTeamName || match.awayTeam?.name || match.match_awayteam_name || match.away?.name;
+  const homeScore = match.homeTeamFtScore ?? match.homeTeamScore ?? match.match_hometeam_score ?? match.homeScore ?? match.goals?.home ?? match.score?.fullTime?.home;
+  const awayScore = match.awayTeamFtScore ?? match.awayTeamScore ?? match.match_awayteam_score ?? match.awayScore ?? match.goals?.away ?? match.score?.fullTime?.away;
+  const kickoff = match.kickoffUtc || match.utcDate || match.matchDate || match.match_date || match.date || match.fixture?.date;
+  const rawStatus = match.matchStatus || match.match_status || match.status?.short || match.status || match.fixture?.status?.short || "";
+  const status = String(typeof rawStatus === "object" ? rawStatus.name || rawStatus.type || "" : rawStatus).toUpperCase();
   const dateText = kickoff ? String(kickoff) : "";
   const timestamp = dateText ? Math.floor(Date.parse(dateText.includes("T") ? dateText : `${dateText}T${match.matchTime || match.match_time || "00:00"}:00Z`) / 1000) : 0;
   return {
@@ -252,45 +253,52 @@ function goalFixtureToStandard(match) {
 }
 
 async function getGoalTeamResults(teamId, key) {
-  // The team-scoped endpoint and the results-by-team endpoint are both
-  // supported by GOAL API. Query both because coverage can differ by route.
-  const paths = [
-    `/teams/${encodeURIComponent(teamId)}/results?limit=100`,
-    `/results/team/${encodeURIComponent(teamId)}?limit=100`,
-  ];
-  const responses = await Promise.allSettled(paths.map((path) => goalApi(path, key)));
+  // GOAL API documents GET /results/team/:teamId as the team results feed.
+  // Walk every page so a partial first page cannot leave a club with only
+  // one or two recent matches.
+  const limit = 100;
   const rows = [];
-  const errors = [];
-  for (const result of responses) {
-    if (result.status === "fulfilled") {
-      const value = result.value;
-      const list = Array.isArray(value) ? value
-        : Array.isArray(value?.results) ? value.results
-        : Array.isArray(value?.matches) ? value.matches
-        : Array.isArray(value?.items) ? value.items
-        : Array.isArray(value?.data) ? value.data : [];
-      rows.push(...list);
-    } else {
-      errors.push(result.reason?.message || "request failed");
+  let offset = 0;
+  for (let page = 0; page < 10; page += 1) {
+    const url = new URL(`https://api.goal-api.com/v1/results/team/${encodeURIComponent(teamId)}`);
+    url.searchParams.set("limit", String(limit));
+    url.searchParams.set("offset", String(offset));
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      next: { revalidate: 1800 },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body?.success === false) {
+      throw new Error(body?.error?.message || body?.message || `GOAL API team-results request returned HTTP ${response.status}`);
     }
-  }
-  if (!rows.length && errors.length === responses.length) {
-    throw new Error(errors.join("; "));
+    const data = body?.data ?? body;
+    const list = Array.isArray(data) ? data
+      : Array.isArray(data?.results) ? data.results
+      : Array.isArray(data?.matches) ? data.matches
+      : Array.isArray(data?.items) ? data.items
+      : Array.isArray(data?.fixtures) ? data.fixtures
+      : [];
+    rows.push(...list);
+    const pagination = body?.pagination || data?.pagination;
+    const hasMore = pagination?.hasMore === true
+      || (!pagination && list.length === limit);
+    if (!hasMore || list.length === 0) break;
+    const nextOffset = Number(pagination?.offset) + Number(pagination?.limit || list.length);
+    offset = Number.isFinite(nextOffset) && nextOffset > offset ? nextOffset : offset + list.length;
   }
   const seen = new Set();
   return rows.filter((match) => {
-    const id = match.id || match.apiId || match.match_id;
+    const id = match.id || match.apiId || match.match_id || match.fixture?.id;
     const key = id ? `id:${id}` : JSON.stringify([
-      match.kickoffUtc || match.matchDate || match.match_date,
-      match.homeTeamId || match.match_hometeam_id,
-      match.awayTeamId || match.match_awayteam_id,
+      match.kickoffUtc || match.matchDate || match.match_date || match.date || match.fixture?.date,
+      match.homeTeamId || match.homeTeam?.id || match.match_hometeam_id,
+      match.awayTeamId || match.awayTeam?.id || match.match_awayteam_id,
     ]);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
-
 async function getGoalApiForm(homeName, awayName, homeApiId, awayApiId) {
   const key = process.env.GOAL_API_KEY;
   if (!key) throw new Error("GOAL_API_KEY is missing from the server environment.");
