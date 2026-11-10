@@ -227,43 +227,7 @@ export async function GET(request) {
     );
   }
 
-  const apiKey = process.env.API_FOOTBALL_KEY;
-  const apiUrl = new URL("https://v3.football.api-sports.io/fixtures");
-  apiUrl.searchParams.set("date", date);
-  apiUrl.searchParams.set("timezone", "Africa/Lagos");
-
-  let apiFootballError = null;
-  if (apiKey) {
-    try {
-      const response = await fetch(apiUrl, {
-        method: "GET",
-        headers: { "x-apisports-key": apiKey },
-        next: { revalidate: 600 },
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || (data.errors && Object.keys(data.errors).length > 0)) {
-        apiFootballError = data?.errors ? JSON.stringify(data.errors) : `HTTP ${response.status}`;
-        console.error("API-Football fixtures request failed:", { status: response.status, errors: data.errors });
-      } else if (Array.isArray(data.response) && data.response.length > 0) {
-        return Response.json({
-          date,
-          timezone: "Africa/Lagos",
-          results: data.results ?? data.response.length,
-          fixtures: data.response,
-          source: "API-Football",
-        });
-      } else {
-        apiFootballError = "API-Football returned no fixtures for the selected date.";
-      }
-    } catch (error) {
-      apiFootballError = error?.message || "Request failed";
-      console.error("API-Football fixtures request failed:", error);
-    }
-  } else {
-    apiFootballError = "API_FOOTBALL_KEY is missing.";
-  }
-
-  // A provider error must not blank the entire match centre when another
+  // Fixtures are supplied by GOAL API, Football-Data.org and API Ninjas.\n\n  // A provider error must not blank the entire match centre when another
   // configured source can supply the selected day's fixtures.
   const [goalResult, footballDataResult] = await Promise.allSettled([
     getGoalFixtures(date, process.env.GOAL_API_KEY),
