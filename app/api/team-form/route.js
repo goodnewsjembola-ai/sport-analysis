@@ -361,16 +361,36 @@ async function getFootballDataForm(homeName, awayName, leagueName) {
   const token = process.env.FOOTBALL_DATA_TOKEN;
   if (!token) throw new Error("FOOTBALL_DATA_TOKEN is missing from the server environment.");
 
-  // Search Football-Data.org's global team directory instead of assuming
-  // both clubs belong to the fixture's league. Cup fixtures often pair
-  // clubs from different divisions.
-  const directory = await footballData("/teams", token);
-  const teams = Array.isArray(directory?.teams) ? directory.teams : [];
-  const homeTeam = findTeam(teams, homeName);
-  const awayTeam = findTeam(teams, awayName);
+  // The global /teams endpoint is incomplete on some plans. Search each
+  // competition's current team list as well, because cup fixtures can involve
+  // clubs from different divisions and the fixture's competition may not
+  // contain either club.
+  const competitionCodes = [...new Set(COMPETITIONS.map((item) => item.code))];
+  const directoryRequest = footballData("/teams", token).catch(() => ({ teams: [] }));
+  const competitionRequests = await Promise.allSettled(
+    competitionCodes.map((code) => footballData(`/competitions/${code}/teams`, token))
+  );
+  const [directory, ...competitionResults] = await Promise.all([
+    directoryRequest,
+    Promise.resolve(competitionRequests),
+  ]);
+  const allTeams = [
+    ...(Array.isArray(directory?.teams) ? directory.teams : []),
+    ...competitionResults.flatMap((result) =>
+      result.status === "fulfilled" && Array.isArray(result.value?.teams) ? result.value.teams : []
+    ),
+  ];
+  const uniqueTeams = [...new Map(allTeams.filter((team) => team?.id)
+    .map((team) => [String(team.id), team])).values()];
+  const homeTeam = findTeam(uniqueTeams, homeName);
+  const awayTeam = findTeam(uniqueTeams, awayName);
+
   if (!homeTeam || !awayTeam) {
+    const searched = competitionCodes.filter((_, index) =>
+      competitionResults[index]?.status === "fulfilled"
+    );
     throw new Error(
-      `Football-Data.org global team directory could not match both clubs. Home: ${homeTeam?.name || "not found"}; Away: ${awayTeam?.name || "not found"}.`
+      `Football-Data.org could not identify both clubs after searching its global directory and ${searched.length} competition team lists. Home: ${homeTeam?.name || "not found"}; Away: ${awayTeam?.name || "not found"}.`
     );
   }
 
