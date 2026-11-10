@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { saveVerifiedMatches } from "@/lib/match-store";
 
 export const revalidate = 1800;
 
@@ -775,7 +776,18 @@ export async function GET(request) {
 
   if (normalize(leagueName).includes("npfl") || normalize(leagueName).includes("nigerianpremier")) {
     try {
-      return NextResponse.json(await getNpFlForm(homeName, awayName));
+      const npflData = await getNpFlForm(homeName, awayName);
+      let historyStore = { enabled: false, saved: 0, reason: "DATABASE_URL is not configured." };
+      try {
+        historyStore = await saveVerifiedMatches(
+          [...(npflData.homeRecent || []), ...(npflData.awayRecent || []), ...(npflData.headToHead || [])],
+          [npflData.source || "GOAL API"]
+        );
+      } catch (storageError) {
+        console.error("G SPORT NPFL history storage failed:", storageError);
+        historyStore = { enabled: true, saved: 0, error: storageError?.message || "Database write failed." };
+      }
+      return NextResponse.json({ ...npflData, historyStore });
     } catch (error) {
       console.error("GOAL API NPFL recent-form request failed:", error);
       return NextResponse.json({
@@ -842,13 +854,26 @@ export async function GET(request) {
   if (espnFallback.homeRecent?.length || espnFallback.awayRecent?.length || espnFallback.headToHead?.length) sources.push("ESPN");
   if (ninjasFallback.homeRecent?.length || ninjasFallback.awayRecent?.length || ninjasFallback.headToHead?.length) sources.push("API Ninjas");
 
+  let historyStore = { enabled: false, saved: 0, reason: "DATABASE_URL is not configured." };
+  try {
+    historyStore = await saveVerifiedMatches(
+      [...homeRecent, ...awayRecent, ...headToHead],
+      sources
+    );
+  } catch (storageError) {
+    // Storage must never block verified live facts or G SPORT's own model.
+    console.error("G SPORT verified-history storage failed:", storageError);
+    historyStore = { enabled: true, saved: 0, error: storageError?.message || "Database write failed." };
+  }
+
   return NextResponse.json({
     ...goalData,
     homeRecent,
     awayRecent,
     headToHead,
     warnings,
+    historyStore,
     source: sources.join(" + ") || "No verified source returned data",
-    formNotice: "Recent form combines verified completed results from GOAL API, Football-Data.org, ESPN and API Ninjas when available. No unrelated teams or unfinished matches are included. Head-to-head meetings are listed separately.",
+    formNotice: "Recent form combines verified completed results from configured football data feeds. Providers supply factual records only; G SPORT calculates its own predictions. No unrelated teams or unfinished matches are included.",
   });
 }
