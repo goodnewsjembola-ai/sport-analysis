@@ -507,8 +507,8 @@ export default function Home() {
                         }}>Try again</button>
                       </div>
                     )}
-                    {(analysisByFixture[fixtureId] || formByFixture[fixtureId]) && (() => {
-                      const item = analysisByFixture[fixtureId] || buildFormModel(formByFixture[fixtureId], fixture.teams?.home?.name || "Home", fixture.teams?.away?.name || "Away") || {};
+                    {formByFixture[fixtureId] && (() => {
+                      const item = buildFormModel(formByFixture[fixtureId], fixture.teams?.home?.name || "Home", fixture.teams?.away?.name || "Away") || { insufficientData: true };
                       const prediction = item.predictions || {};
                       const percent = prediction.percent || {};
                       const goals = prediction.goals || {};
@@ -583,7 +583,7 @@ export default function Home() {
                             );
                           })()}
                           <div className="prediction-details">
-                            <div className="prediction-detail-card"><small>Predicted winner</small><strong>{winner.name || "No clear favourite"}</strong>{winner.comment && <span>{winner.comment}</span>}</div>
+                            <div className="prediction-detail-card"><small>Predicted winner</small><strong>{winner.name || "Not enough verified data"}</strong>{winner.comment && <span>{winner.comment}</span>}</div>
                             <div className="prediction-detail-card"><small>Goals market</small><strong>{goalsMarket || "Not available"}</strong><span>G SPORT model estimate</span></div>
                           </div>
                           <section className="team-goals-section" aria-label="Team goals estimates">
