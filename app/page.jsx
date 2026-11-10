@@ -223,8 +223,11 @@ export default function Home() {
         setFormLoading(fixtureId);
         setFormErrors((current) => ({ ...current, [fixtureId]: "" }));
         try {
-          const formParams = new URLSearchParams({ home: String(homeId), away: String(awayId) });
-          if (season) formParams.set("season", String(season));
+          const formParams = new URLSearchParams({
+            homeName: String(fixture.teams?.home?.name || ""),
+            awayName: String(fixture.teams?.away?.name || ""),
+            league: String(fixture.league?.name || ""),
+          });
           const formResponse = await fetch(`/api/team-form?${formParams.toString()}`);
           const formData = await formResponse.json();
           if (!formResponse.ok) {
