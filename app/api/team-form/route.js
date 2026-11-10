@@ -852,15 +852,14 @@ export async function GET(request) {
   if (needsTopUp) {
     // Try both fallback providers independently. A restriction or outage in
     // one provider must not prevent valid results from the other being used.
-    const [apiFootballResult, footballDataResult, espnResult, apiNinjasResult] = await Promise.allSettled([
-      getApiFootballForm(homeName, awayName),
+    // Start with providers that do not consume the tightly rate-limited
+    // API-Football quota. Only call API-Football if these sources still leave
+    // either club short of five verified completed matches.
+    const [footballDataResult, espnResult, apiNinjasResult] = await Promise.allSettled([
       getFootballDataForm(homeName, awayName, leagueName),
       getEspnForm(homeName, awayName, leagueName),
       getApiNinjasForm(homeName, awayName),
     ]);
-    const apiFallback = apiFootballResult.status === "fulfilled"
-      ? apiFootballResult.value
-      : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`API-Football: ${apiFootballResult.reason?.message || "request failed"}`] };
     const dataFallback = footballDataResult.status === "fulfilled"
       ? footballDataResult.value
       : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`Football-Data.org: ${footballDataResult.reason?.message || "request failed"}`] };
@@ -870,6 +869,24 @@ export async function GET(request) {
     const ninjasFallback = apiNinjasResult.status === "fulfilled"
       ? apiNinjasResult.value
       : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`API Ninjas: ${apiNinjasResult.reason?.message || "request failed"}`] };
+
+    const preliminaryHome = mergeRecentMatches(
+      mergeRecentMatches(goalData.homeRecent, dataFallback.homeRecent),
+      mergeRecentMatches(espnFallback.homeRecent, ninjasFallback.homeRecent)
+    );
+    const preliminaryAway = mergeRecentMatches(
+      mergeRecentMatches(goalData.awayRecent, dataFallback.awayRecent),
+      mergeRecentMatches(espnFallback.awayRecent, ninjasFallback.awayRecent)
+    );
+    let apiFallback = { homeRecent: [], awayRecent: [], headToHead: [], warnings: [] };
+    if (preliminaryHome.length < 5 || preliminaryAway.length < 5) {
+      const apiFootballResult = await Promise.allSettled([
+        getApiFootballForm(homeName, awayName),
+      ]);
+      apiFallback = apiFootballResult[0].status === "fulfilled"
+        ? apiFootballResult[0].value
+        : { homeRecent: [], awayRecent: [], headToHead: [], warnings: [`API-Football: ${apiFootballResult[0].reason?.message || "request failed"}`] };
+    }
 
     const homeRecent = mergeRecentMatches(
       mergeRecentMatches(
