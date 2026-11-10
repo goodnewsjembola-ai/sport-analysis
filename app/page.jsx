@@ -175,8 +175,8 @@ function poissonProbability(lambda, goals) {
 
 function buildFormModel(form, homeName, awayName) {
   if (!form) return null;
-  const homeMatches = (form.homeRecent || []).map((match) => getTeamResult(match, null, homeName)).filter(Boolean).slice(0, 3);
-  const awayMatches = (form.awayRecent || []).map((match) => getTeamResult(match, null, awayName)).filter(Boolean).slice(0, 3);
+  const homeMatches = (form.homeRecent || []).map((match) => getTeamResult(match, null, homeName)).filter(Boolean).slice(0, 5);
+  const awayMatches = (form.awayRecent || []).map((match) => getTeamResult(match, null, awayName)).filter(Boolean).slice(0, 5);
   if (homeMatches.length < 2 || awayMatches.length < 2) return null;
   const averages = (matches) => ({
     scored: matches.reduce((sum, match) => sum + Number(match.score.split(" - ")[0]), 0) / matches.length,
@@ -217,7 +217,7 @@ function buildFormModel(form, homeName, awayName) {
     model: true,
     predictions: {
       percent: { home: Math.round(hw / total * 100) + "%", draw: Math.round(dr / total * 100) + "%", away: Math.round(aw / total * 100) + "%" },
-      winner: { name: outcomes[0].value - outcomes[1].value < 0.06 ? "No clear favourite" : outcomes[0].name, comment: "Estimated from each team's last three verified results" + (meetings.length ? " and " + meetings.length + " verified head-to-head meetings." : ".") },
+      winner: { name: outcomes[0].value - outcomes[1].value < 0.06 ? "No clear favourite" : outcomes[0].name, comment: "Estimated from each team's last five verified results" + (meetings.length ? " and " + meetings.length + " verified head-to-head meetings." : ".") },
       under_over: over25 >= 0.5 ? "+2.5" : "-2.5",
       goals: { home: 1 - Math.exp(-homeExpected) >= 0.5 ? "+0.5" : "-0.5", away: 1 - Math.exp(-awayExpected) >= 0.5 ? "+0.5" : "-0.5" },
     },
@@ -610,7 +610,7 @@ export default function Home() {
                           <section className="form-section" aria-label="Recent form and head to head">
                             <div className="form-section-heading">
                               <div><small>TEAM PERFORMANCE</small><h4>Recent form <em>& history.</em></h4></div>
-                              <span>LAST 3 MATCHES</span>
+                              <span>LAST 5 MATCHES</span>
                             </div>
                             {formLoading === fixtureId && <p className="form-message">Loading recent results and previous meetings...</p>}
                             {formErrors[fixtureId] && <div className="form-message form-error"><p>{formErrors[fixtureId]}</p>{formErrors[fixtureId].details?.map((detail, index) => <small key={index}>{detail}</small>)}</div>}
@@ -654,7 +654,7 @@ export default function Home() {
                             })()}
                           </section>
                           {prediction.advice && <p className="prediction-advice"><b>Provider advice:</b> {prediction.advice}</p>}
-                          <p className="prediction-disclaimer">These are third-party statistical estimates, not guaranteed results. Availability and detail depend on the provider's data for this match.</p>
+                          <p className="prediction-disclaimer">G SPORT calculates its own predictions using its internal statistical model. Football data providers supply match records and statistics only; their predictions, tips and betting recommendations are not used. Estimates are not guaranteed outcomes.</p>
                         </div>
                       );
                     })()}
