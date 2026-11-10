@@ -257,7 +257,10 @@ export default function Home() {
         try {
           const response = await fetch(`/api/predictions?fixture=${encodeURIComponent(fixtureId)}`);
           const data = await response.json();
-          if (!response.ok) throw new Error(data.error || "Match analysis could not be loaded.");
+          if (!response.ok) {
+            const detail = data.details ? ` Provider detail: ${data.details}` : "";
+            throw new Error((data.error || "Match analysis could not be loaded.") + detail);
+          }
           const result = data.predictions?.[0] || null;
           if (!result) throw new Error("The prediction provider has no prediction for this fixture. Team history can still be viewed below.");
           setAnalysisByFixture((current) => ({ ...current, [fixtureId]: result }));
