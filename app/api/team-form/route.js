@@ -63,11 +63,14 @@ async function findApiFootballTeamId(teamName, key) {
   const teams = await apiFootball(`/teams?${query.toString()}`, key);
   const wanted = normalize(teamName);
   const exact = teams.find((item) => normalize(item.team?.name) === wanted);
-  const selected = exact || teams.find((item) => {
+  const matches = teams.filter((item) => {
     const candidate = normalize(item.team?.name);
-    return candidate.length > 4 && wanted.length > 4
+    return candidate.length > 4 && wanted.length > 3
       && (candidate.includes(wanted) || wanted.includes(candidate));
   });
+  const selected = exact || matches.sort((a, b) =>
+    normalize(a.team?.name).length - normalize(b.team?.name).length
+  )[0];
   return selected?.team?.id || null;
 }
 
@@ -142,12 +145,17 @@ async function goalApi(path, key) {
 
 function findGoalTeam(teams, targetName) {
   const wanted = normalize(targetName);
-  return (teams || []).find((team) => normalize(team.name) === wanted)
-    || (teams || []).find((team) => {
-      const candidate = normalize(team.name);
-      return candidate.length > 4 && wanted.length > 4 && (candidate.includes(wanted) || wanted.includes(candidate));
-    })
-    || null;
+  const candidates = (teams || []).filter((team) => normalize(team.name));
+  const exact = candidates.find((team) => normalize(team.name) === wanted);
+  if (exact) return exact;
+  // Prefer the shortest senior-club name (e.g. Leeds United) over a
+  // similarly named academy or reserve side (e.g. Leeds United U21).
+  const matches = candidates.filter((team) => {
+    const candidate = normalize(team.name);
+    return candidate.length > 4 && wanted.length > 3
+      && (candidate.includes(wanted) || wanted.includes(candidate));
+  });
+  return matches.sort((a, b) => normalize(a.name).length - normalize(b.name).length)[0] || null;
 }
 
 function convertGoalResult(match) {
