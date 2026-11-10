@@ -23,6 +23,12 @@ function normalize(value) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    // Normalize common broadcast/provider abbreviations before matching.
+    // "Man Utd", "Manchester Utd" and "Manchester United" must resolve
+    // to the same club across GOAL, ESPN, API-Football and API Ninjas.
+    .replace(/\bman\s*u\b/g, "manchester united")
+    .replace(/\bmanu\b/g, "manchester united")
+    .replace(/\butd\b/g, "united")
     .replace(/\b(fc|cf|afc|club|football club|town)\b/g, "")
     .replace(/[^a-z0-9]/g, "");
 }
@@ -690,7 +696,7 @@ async function getApiNinjasForm(homeName, awayName) {
   ]);
   const recent = (result, team) => result.status === "fulfilled"
     ? result.value
-      .filter((match) => match.status === "final"
+      .filter((match) => ["final", "finished", "ft", "full_time"].includes(String(match.status || "").toLowerCase())
         && match.home_score !== null && match.home_score !== undefined
         && match.away_score !== null && match.away_score !== undefined)
       .map(apiNinjasMatchToStandard)
