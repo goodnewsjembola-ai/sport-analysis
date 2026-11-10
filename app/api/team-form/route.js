@@ -246,11 +246,6 @@ function convertMatch(match) {
 }
 
 export async function GET(request) {
-  const token = process.env.FOOTBALL_DATA_TOKEN;
-  if (!token) {
-    return NextResponse.json({ error: "Football-Data.org is not configured on the server." }, { status: 503 });
-  }
-
   const params = new URL(request.url).searchParams;
   const homeName = (params.get("homeName") || "").trim();
   const awayName = (params.get("awayName") || "").trim();
